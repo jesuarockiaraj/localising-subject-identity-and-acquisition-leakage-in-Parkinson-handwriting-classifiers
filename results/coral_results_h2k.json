@@ -1,0 +1,22 @@
+[
+  {
+    "seed": 999,
+    "direction": "handpd_to_kaggle",
+    "auc": 0.5932333717800846
+  },
+  {
+    "seed": 1001,
+    "direction": "handpd_to_kaggle",
+    "auc": 0.5578623606305267
+  },
+  {
+    "seed": 1002,
+    "direction": "handpd_to_kaggle",
+    "auc": 0.6801230296039984
+  },
+  {
+    "seed": 1003,
+    "direction": "handpd_to_kaggle",
+    "auc": 0.6562860438292963
+  }
+]
