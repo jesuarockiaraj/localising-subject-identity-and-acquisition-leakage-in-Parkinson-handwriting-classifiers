@@ -1,0 +1,7 @@
+Highlights
+
+- Localises PD-handwriting classifier leakage to background vs. drawn trace.
+- Rules out a colour/rendering confound: signal survives a geometry-only view.
+- Verified background suppression detects no honest-AUC improvement.
+- Separates small identity leakage from large cross-cohort domain shift.
+- Releases a signal-localisation probe and a runnable prediction demo.

@@ -48,6 +48,13 @@ python pd_loso_pipeline_cross_dataset.py --dataset kaggle --root Datasets/kaggle
     --models vgg16 resnet50 --seeds 1 2 3 4 5
 ```
 
+**Figure 3** (cross-cohort AUC by architecture, visualising Table 1) — edit
+the recorded `H2K`/`K2H` values at the top of `make_baseline_fig.py` to
+match the table above, then:
+```bash
+python make_baseline_fig.py
+```
+
 ---
 
 ## Table 2 — Identity/cohort probe, raw images
@@ -78,14 +85,17 @@ python stratified_reid.py
 The first command writes `scratch_feats_full.npy` / `scratch_subjects_full.npy`
 in the current directory; `stratified_reid.py` reads them directly (no
 flags of its own). Verified end to end: this reproduces every number in
-Table 3 to a chance-level match and the same order of magnitude on
-re-ID@1/@5/mAP (small movement from the manuscript's own numbers is
-expected package-version drift in the frozen ImageNet backbone's exact
-feature values, not a bug in either script).
+Table 3 exactly, including the pooled row matching Table 2's "Full" row to
+three decimal places (0.327) — Table 3 was regenerated with this exact
+pipeline run after an earlier version was found to be out of sync with
+Table 2 (see the manuscript's Table 3 caption for the disclosure).
 
 ---
 
-## Table 4 / Table 5 — Rendering-invariance ladder (raw / suppressed)
+## Table 4 / Table 6 — Rendering-invariance ladder (raw / suppressed)
+
+(Note: this used to be mislabeled "Table 4 / Table 5" here — Table 5 is
+actually the separate probe-supp table below. Fixed.)
 
 **Raw images (Table 4):**
 ```bash
@@ -95,7 +105,7 @@ python rendering_invariance_probe.py \
     --out rendering_invariance_results.json
 ```
 
-**Suppressed images (Table 5 / "rendering-supp"):**
+**Suppressed images (Table 6 / "rendering-supp"):**
 ```bash
 python rendering_invariance_probe.py \
     --handpd-glob "Datasets_2a/HandPD/**/*.jpg" \
@@ -103,9 +113,16 @@ python rendering_invariance_probe.py \
     --out rendering_invariance_results_suppressed.json
 ```
 
+**Figure 5** (raw vs. suppressed ladder, side by side) — edit the recorded
+`RAW_REID`/`RAW_AUC`/`SUPP_REID`/`SUPP_AUC` values at the top of
+`make_rendering_ladder_fig.py` to match Tables 4 and 6, then:
+```bash
+python make_rendering_ladder_fig.py
+```
+
 ---
 
-## Table (probe-supp) — Identity/cohort probe, suppressed images
+## Table 5 (probe-supp) — Identity/cohort probe, suppressed images
 
 ```bash
 python leak_decomposition_probe.py \
@@ -127,6 +144,12 @@ inside the script.
 
 ## HandPD clean pen-only split (Section 4.7)
 
+First verify the colour direction (dark ink = printed guide, blue ink = pen
+stroke) before trusting the split below:
+```bash
+python verify_guide_color.py
+```
+Then reproduce the clean pen-only re-ID number:
 ```bash
 python handpd_clean_split.py
 ```
@@ -134,7 +157,47 @@ No flags — same hardcoded paths as above.
 
 ---
 
-## Table 6 — Calibration (Brier / ECE)
+## Table 8 — Guide-excluded, colour-separated pen-only rendering-invariance ladder
+
+**Raw images:**
+```bash
+python rendering_invariance_penonly.py \
+    --handpd-glob "Datasets/HandPD/**/*.jpg" \
+    --kaggle-glob "Datasets/kaggle/drawings/**/*.png" \
+    --out rendering_invariance_penonly_results.json
+```
+
+**Suppressed images** (reconstructs the guide-excluded pen-only view by
+isolating the pen mask on the raw image first, then rendering it through
+`mech2_suppression.render()` — equivalent to what a corrected suppression
+pipeline would output, without regenerating `Datasets_2a/`):
+```bash
+python rendering_invariance_penonly_suppressed.py \
+    --handpd-glob "Datasets/HandPD/**/*.jpg" \
+    --kaggle-glob "Datasets_2a/kaggle/drawings/**/*.png" \
+    --out rendering_invariance_penonly_suppressed_results.json
+```
+
+---
+
+## Table 9 — Background-only disease decodability (raw vs. suppressed, both cohorts)
+
+```bash
+python background_disease_probe.py
+```
+No flags — paths for both cohorts (raw and suppressed) are hardcoded inside
+the script. Writes `background_disease_probe_results.json`.
+
+**Suppressed P1 vs. P2 identity-leakage gap** (aggregates existing
+predictions from `results_2a_verify_seeds_999_1001_1002_1003/` — no new
+training needed):
+```bash
+python compute_suppressed_p1.py
+```
+
+---
+
+## Table 10 — Calibration (Brier / ECE)
 
 ```bash
 python make_calibration_table.py
@@ -147,11 +210,17 @@ manuscript's own text says this table reuses, not the newly verified ones
 — aggregates to one mean probability per (seed, subject), computes Brier
 score and 10-equal-width-bin ECE per seed, and reports mean &plusmn; SD.
 Writes `calibration_table.csv`. **Verified exact**: reproduces all eight
-numbers in Table 6 to three decimal places.
+numbers in Table 8 to three decimal places.
+
+**Figure 7** (Brier/ECE bar chart) — edit the recorded `BRIER`/`ECE` values
+at the top of `make_calibration_fig.py` to match Table 8, then:
+```bash
+python make_calibration_fig.py
+```
 
 ---
 
-## Table (othertasks) — Generalisation to meander / wave
+## Table 11 — Generalisation to meander / wave
 
 **HandPD meander, raw P1/P2 (original, five seeds):**
 ```bash
@@ -184,7 +253,7 @@ next run, per the "GOTCHA" in the harness noted below.)
 
 ---
 
-## Table 7 (Table 4 in-text) — Causal comparison, all three rows
+## Table 7 — Causal comparison, all three rows
 
 **1. Within-cohort HandPD spiral, suppressed (verified):**
 ```bash
@@ -215,7 +284,7 @@ python compare_2a_vs_baseline.py --model efficientnet_b0 \
     --treat    results/results_2a_verify_cross_k2h_4seed/predictions_cross_kaggle_spiral_to_handpd_spiral.csv
 ```
 
-**Figure 4 (forest plot)** — edit the recorded `ROWS` values at the top of
+**Figure 6 (forest plot)** — edit the recorded `ROWS` values at the top of
 `make_forest_plot.py` to match the `compare_2a_vs_baseline.py` console output
 above (by design, the figure never re-derives numbers — see the script's own
 docstring), then:
@@ -225,7 +294,7 @@ python make_forest_plot.py
 
 ---
 
-## Positive control (Section 2.2 / Figure 2)
+## Positive control (Section 3.3 / Figure 4)
 
 ```bash
 python inject_marker.py --in-root Datasets/HandPD --out-root Datasets_marker/HandPD --task spiral
@@ -247,7 +316,7 @@ python make_positive_control_fig.py
 
 ---
 
-## Deep CORAL baseline (Section "Implications for future mechanisms")
+## Deep CORAL baseline (Section "Implications for future mechanisms", Figure 9)
 
 ```bash
 python coral_baseline.py --train-root Datasets/HandPD --train-task spiral \
@@ -258,19 +327,23 @@ python make_intervention_comparison_fig.py
 
 ---
 
-## Figure 1 (architecture diagram thumbnails)
+## Legacy: architecture diagram thumbnails (unused)
 
+`make_pipeline_thumbs.py` cropped real-data thumbnails for an earlier,
+TikZ-rendered version of Figure 1. Figure 1 is now a standalone supplied
+diagram (`figures/handwriting_architecture.pdf`), so this script's output
+is no longer referenced in the manuscript; kept only for provenance.
 ```bash
 python make_pipeline_thumbs.py
 ```
 
-## Figure 3 (masking panel)
+## Figure 2 (masking panel)
 
 ```bash
 python make_masking_panel.py
 ```
 
-## Figure 5 (worked example)
+## Figure 8 (worked example)
 
 ```bash
 python train_demo_checkpoint.py --root Datasets/HandPD --task spiral \

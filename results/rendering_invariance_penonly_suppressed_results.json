@@ -1,0 +1,26 @@
+{
+  "color": {
+    "reid_at_1": 0.07340425531914893,
+    "reid_chance": 0.0072772452964146245,
+    "cohort_auc": 1.0,
+    "cohort_balacc": 1.0,
+    "n": 940,
+    "n_subjects": 120
+  },
+  "gray": {
+    "reid_at_1": 0.07340425531914893,
+    "reid_chance": 0.0072772452964146245,
+    "cohort_auc": 1.0,
+    "cohort_balacc": 1.0,
+    "n": 940,
+    "n_subjects": 120
+  },
+  "uniform": {
+    "reid_at_1": 0.06808510638297872,
+    "reid_chance": 0.0072772452964146245,
+    "cohort_auc": 1.0,
+    "cohort_balacc": 1.0,
+    "n": 940,
+    "n_subjects": 120
+  }
+}

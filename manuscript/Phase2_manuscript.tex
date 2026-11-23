@@ -1,0 +1,2135 @@
+\documentclass[3p,final,10pt]{elsarticle}
+\journal{Results in Engineering}
+
+% ---------- packages (kept to a widely-available core) ----------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xurl}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{positioning,fit,backgrounds,calc,arrows.meta}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyphenat}
+\usepackage{lineno}
+\modulolinenumbers[5]
+\usepackage{float}
+\usepackage{placeins}
+% keep every figure/table/algorithm exactly where it is written, instead of
+% letting LaTeX's default float rules defer them (they were all piling up
+% at the end of the document otherwise)
+\let\oldsection\section
+\renewcommand{\section}{\FloatBarrier\oldsection}
+\let\oldsubsection\subsection
+\renewcommand{\subsection}{\FloatBarrier\oldsubsection}
+
+\definecolor{probelane}{RGB}{234,238,253}
+\definecolor{causallane}{RGB}{253,236,227}
+\definecolor{boxline}{RGB}{104,112,138}
+\definecolor{inkcolor}{RGB}{35,45,90}
+\definecolor{paperbg}{RGB}{243,239,230}
+\definecolor{probeaccent}{RGB}{67,97,238}
+\definecolor{causalaccent}{RGB}{243,114,44}
+\definecolor{stepnum}{RGB}{67,97,238}
+\definecolor{diagshadow}{RGB}{0,0,0}
+\definecolor{stagebg}{RGB}{246,246,244}
+\definecolor{stageborder}{RGB}{206,206,200}
+\definecolor{stagetext}{RGB}{60,60,58}
+
+\captionsetup{font=small,labelfont=bf}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{Localising subject-identity and acquisition leakage in Parkinson's
+handwriting classifiers: background suppression is verified but
+insufficient}
+
+\author[1]{Jesu Arockiaraj J}
+\ead{jesuarockiaraj.j@vit.ac.in}
+\author[1]{Arulkumar V\corref{cor1}}
+\ead{arulkumar.v@vit.ac.in}
+\cortext[cor1]{Corresponding author.}
+
+\affiliation[1]{organization={School of Computer Science and Engineering, Vellore Institute of Technology},
+            city={Vellore},
+            state={Tamil Nadu},
+            country={India}}
+
+% ======================================================================
+\begin{abstract}
+\noindent
+\textbf{Background.} Deep-learning Parkinson's disease (PD) handwriting
+classifiers routinely report 95--99\% accuracy under image-level
+train/test splitting. We replicate this evaluation gap under one matched
+protocol and separate two phenomena: a small subject-identity leakage
+effect (image-level vs.\ subject-grouped splitting) and a much larger
+cross-cohort acquisition/domain-shift effect (within-cohort vs.\ external
+validation). Unestablished is where the domain-shift signal lives background-confined signal is removable by preprocessing trace-intrinsic
+signal is not.
+\textbf{Methods.} We probed frozen ImageNet-pretrained EfficientNet-B0
+features under three masking modes (full/background-only/trace-only) to
+localise subject re-identification and cohort decodability, built a
+background/template suppression pipeline, confirmed it removed the
+targeted signal, and tested whether honest-protocol AUC improved via a
+paired, subject-level bootstrap. A rendering-invariant, geometry-only
+reconstruction ruled out a colour confound.
+\textbf{Results.} Background alone perfectly separated cohorts, surviving
+unchanged under grayscale and geometry-only renderings (cohort AUC
+$1.000\to1.000\to0.997$), ruling out colour. Suppression removed
+background-confined signal (re-identification and cohort decodability
+collapsed to chance) but produced no improvement in honest-protocol AUC in
+any cross-cohort or within-cohort comparison (all 95\% CIs included
+zero). Given this design's minimum detectable effect
+($\approx0.13$--$0.37$ AUC), this is evidence of absence, not evidence of
+failure. One unreplicated Deep CORAL test likewise showed no improvement.
+\textbf{Conclusion.} The identity and cohort signal this study localises is
+geometric and trace-intrinsic, not background-confined or colour-related
+suppressing the background/template channel specifically does not improve
+honest-protocol accuracy, so that one class of preprocessing-only
+de-leaking intervention is insufficient on this evidence. Cohort
+decodability from the trace is correlational, not a causal attribution of
+the cross-cohort AUC drop to any single mechanism population, disease-stage,
+or protocol differences between cohorts remain equally compatible
+explanations and are not ruled out here. We
+recommend pairing any de-leaking intervention with a signal-localisation
+probe run before and after, including a rendering-invariance control,
+released as a reusable protocol.
+\end{abstract}
+
+\begin{keyword}
+Parkinson's disease \sep handwriting \sep data leakage \sep subject re-identification \sep mechanistic evaluation \sep domain shift
+\end{keyword}
+
+\end{frontmatter}
+
+\linenumbers
+
+% ======================================================================
+\section{Introduction}
+
+Deep learning classifiers trained on hand-drawn spirals, meanders and waves
+routinely report 95--99\% accuracy for Parkinson's disease (PD) screening
+\cite{gazda2022,kamran2021}. This is almost always measured by pooling all
+drawings and splitting them at the image level into training and test sets
+because each participant contributes several drawings, this procedure lets
+drawings from the same person land on both sides of the split, so a network
+can succeed by recognising the individual rather than the disease.
+
+As a first step, we replicate this evaluation gap ourselves, under a single
+protocol held fixed for the rest of the study (same backbone, preprocessing,
+augmentation and splitting code as every other result reported here
+Section~\ref{sec:baseline}). On HandPD spiral with EfficientNet-B0, subject-
+grouped evaluation reduces ROC-AUC relative to image-level splitting
+(0.991$\to$0.944), and cross-cohort external validation training on one
+cohort and testing on the other, with no shared subjects falls further,
+to 0.703 (HandPD$\to$Kaggle) and 0.647 (Kaggle$\to$HandPD), both
+independently verified under explicit, logged settings
+(Section~\ref{sec:limitations}): meaningfully
+above chance, but far below the field's headline numbers. The two other
+architectures we tested (VGG-16, ResNet-50) showed this same qualitative
+pattern but with far higher across-seed variance in the cross-cohort setting
+(VGG-16 Kaggle$\to$HandPD AUC std $\pm0.22$), so we anchor the rest of this
+study's causal comparisons on EfficientNet-B0 alone. This pattern honest
+evaluation reducing apparent accuracy is consistent with subject-identity
+leakage as the cause a network can succeed at test time by recognising the
+person rather than the disease, because most datasets place several
+drawings from the same participant on both sides of an image-level split.
+
+What is not established by this replication, or by prior work on this
+data, is \emph{where}, spatially, the identity signal responsible for the
+gap actually lives. This matters practically. If subject identity is carried mainly by the background
+paper grain, scanning artefacts, the pre-printed guide template then a
+masking or normalisation step applied before training could plausibly
+remove it without touching the diagnostically relevant trace. If instead
+identity is carried by the trace itself an individual's stable,
+health-unrelated motor style, or a device/pen/scanner rendering fingerprint
+that happens to imprint on the stroke then no purely spatial masking
+step can remove it without also removing the very information a screening
+model needs.
+
+The same background/foreground question has practical precedent in
+adjacent identity \hyp confounding literature \cite{chaibubneto2019,tampu2022}:
+segment-level and acquisition-level artefacts are known to inflate
+apparent performance in translational EEG and OCT classification. To our
+knowledge, no prior work on handwriting-based PD screening has directly
+measured, rather than assumed, whether such a background-confined leak
+exists in this data, or whether the correct diagnosis is a subtler,
+trace-intrinsic one.
+
+\textbf{Contributions.}
+\begin{enumerate}
+  \item We independently replicate the image-level vs.\ subject-grouped
+        evaluation gap and the cross-cohort external-validation ceiling under
+        a single protocol held fixed throughout the study, and use it to
+        justify anchoring the causal analysis on one stable architecture.
+  \item We measure subject re-identification and cohort decodability under
+        three masking modes (full / background-only / trace-only) using a
+        frozen, untrained feature extractor, directly localising identity
+        and acquisition signal within the image rather than inferring it
+        from downstream accuracy alone.
+  \item We build and validate a resolution-controlled background/template
+        suppression pipeline, confirm by direct measurement that it removes
+        the background-confined signal it targets, and report the causal
+        effect of that removal on honest-protocol ROC-AUC using paired,
+        subject-level statistics.
+  \item We show the intervention is mechanistically verified but
+        outcome-null background suppression does not narrow the honest
+        generalisation gap, because the residual signal is substantially
+        trace-intrinsic. We rule out image-resolution mismatch as an
+        alternative explanation.
+  \item We argue this negative-but-explained result is itself
+        actionable it forecloses a family of preprocessing-only fixes and
+        redirects effort toward trace-level and multimodal mechanisms.
+\end{enumerate}
+
+% ======================================================================
+\section{Related work}
+\label{sec:related}
+
+\subsection{Deep learning for PD handwriting classification}
+Reference datasets for this task originate with Pereira et al., who
+collected spiral and meander drawings at Botucatu Medical School (HandPD)
+and later added dynamic smart-pen signals in the NewHandPD extension
+\cite{pereira2015,pereira2016newhandpd}. HandPD and the Kaggle set used
+here are not the only handwriting-based PD resources in this literature.
+Drotár et al.\ independently collected the PaHaW database (37 PD patients,
+38 controls, eight tasks including an Archimedean spiral) with full
+kinematic and pressure signal capture rather than static images alone
+\cite{drotar2016pahaw}, and Impedovo and Pirlo survey the broader dynamic
+handwriting-analysis literature for Parkinson's and Alzheimer's assessment
+from a pattern-recognition perspective \cite{impedovo2019}. This study is
+restricted to HandPD and Kaggle specifically because they are the two
+static-image datasets with a shared drawing task (spiral) across
+different acquisition pipelines, which is what the cross-cohort design
+requires. PaHaW's kinematic signals are a natural resource for exactly the
+dynamic-signal extension we flag in Section~\ref{sec:future}, but are not
+directly comparable to the static-image probe applied here. Subsequent
+work moved from signal-derived images to ImageNet-pretrained
+transfer-learning pipelines fine-tuned on the static drawings. Kamran et
+al.\ evaluated six pretrained CNNs (AlexNet, GoogLeNet, VGG-16, VGG-19,
+ResNet-50, ResNet-101) across handwriting datasets including HandPD and
+report accuracies above 90\% \cite{kamran2021}. Gazda et al.\ used
+multiple-fine-tuning transfer learning and reported up to 92.7\% on the
+NewHandPD spiral task and 99.22\% on combined data \cite{gazda2022}.
+Numerous subsequent papers report 94--100\% on these datasets, often with
+heavy augmentation of a few hundred base images, and typically with
+evaluation performed at the image level either random $k$-fold over
+pooled images or a provided fold structure with subject identity
+ignored. To our knowledge, no prior work on handwriting-based PD screening
+has directly measured, rather than assumed, whether a resulting
+background-confined leak exists in this data, or localised the residual
+signal after a proposed mitigation.
+
+\subsection{Identity and acquisition confounding in medical machine learning}
+The mechanism this study investigates performance inflation from
+identity or acquisition artefacts rather than disease signal is
+documented across several adjacent domains, though rarely with the direct,
+causal signal-localisation test we apply here. Chaibub Neto et al.\
+formalised ``identity confounding'' when repeated measurements per
+subject are split at the record level, classifiers exploit person-specific
+signatures and performance does not generalise to new people
+\cite{chaibubneto2019}. Tampu et al.\ showed that improper (per-image)
+splitting of OCT datasets inflates accuracy by 5--30\% relative to
+subject-wise splitting \cite{tampu2022}. More broadly, Kapoor and
+Narayanan's survey of leakage across ML-based science finds it recurring
+in at least 17 fields and 294 papers, and proposes a taxonomy of leakage
+types this study's design maps onto directly (our background/template
+channel is their ``preprocessing on train and test combined'' type,
+localised and tested rather than merely flagged) \cite{kapoor2023}. Saeb
+et al.\ make a related evaluation-design point from the opposite
+direction cross-validation choices that do not approximate the real
+deployment use-case (e.g.\ record-level rather than subject-level folds)
+can make an estimate \emph{look} rigorous while still not answering the
+clinically relevant question, a caution this study's P1/P2/cross-cohort
+protocol separation is designed to take seriously rather than relying on
+any single split \cite{saeb2017}. Brookshire et al.\ found that
+segment-based holdout strongly overestimates accuracy in translational EEG
+relative to subject-based holdout \cite{brookshire2024}. In neuroimaging,
+subject leakage inflates connectome-based prediction \cite{rosenblatt2024},
+and a broader methodological review of Alzheimer's-disease deep learning
+found that studies with confirmed subject-wise splitting reported 66--90\%
+accuracy while studies at high risk of leakage claimed 95--99\%
+\cite{wen2020,alzheimerscoping2025}. Most of this literature diagnoses
+that leakage inflates performance and prescribes subject-wise
+splitting as the fix; it does not typically ask, once a mitigation is
+applied, whether the mitigation demonstrably removed the signal it targets the question this study's paired probe-then-intervene design is built to
+answer.
+
+The present study's design and vocabulary sit closer to the
+shortcut-learning literature than to subject-splitting leakage
+papers alone. Geirhos et al.\ characterise shortcut learning generally a
+network solves a task via a decision rule that exploits spurious,
+easy-to-learn correlates of the label rather than its intended causal
+features \cite{geirhos2020}. DeGrave et al.\ demonstrate this concretely
+for medical imaging radiographic COVID-19 detectors were shown, via
+saliency and dataset-provenance analysis, to rely on shortcuts (scanner
+type, hospital-specific image properties) rather than pathology
+\cite{degrave2021}. Cross-site generalisation failures with the same root
+cause are documented directly for pneumonia detection from chest
+radiographs \cite{zech2018} and reviewed for COVID-19 imaging models more
+broadly \cite{roberts2021}. Badgeley et al.\ show a hip-fracture detector's
+performance is driven substantially by confounding hospital- and
+scanner-level variables rather than the fracture itself
+\cite{badgeley2019}. Kaufman et al.\ give the general data-mining taxonomy
+of leakage that this literature instantiates \cite{kaufman2012}, and
+Varoquaux and Cheplygina catalogue methodological failure modes
+including leakage recurring across medical-imaging machine learning
+\cite{varoquaux2022}. Finally, our subject re-identification probe is
+methodologically close to work treating re-identifiability itself as a
+measurable property of medical images Packh\"auser et al.\ show chest
+radiographs carry recoverable patient identity, a privacy-relevant finding
+that is the same underlying phenomenon our probe exploits for a different
+purpose \cite{packhauser2022}. This study's contribution relative to all
+of the above is not the general diagnosis that evaluation design can
+manufacture apparent accuracy is now well established but the specific,
+causal test of where the responsible signal is spatially located
+within the image, and whether a proposed remedy demonstrably removes it.
+
+% ======================================================================
+\section{Materials and methods}
+
+\subsection{Datasets}
+We use two cohorts common in this literature: HandPD \cite{pereira2015}
+(92 subjects, 74 PD / 18 healthy, 368 spiral and 368 meander images,
+subject identity recoverable from filenames) and the Kaggle
+``Parkinson's Drawings'' set \cite{zham2017} (28 subjects, 15 PD / 13
+healthy, 102 spiral and 102 wave images, subject identity recoverable from
+the encoded volunteer token). No new data was collected for this study.
+The two cohorts also differ in class prevalence (HandPD $80.4\%$ PD;
+Kaggle $53.6\%$ PD), which is a further, distinct source of cross-cohort
+transfer difficulty independent of any leakage or acquisition-signal
+mechanism a decision threshold or operating point learned under one
+prevalence does not transfer to the other without recalibration, and
+threshold-based metrics (sensitivity, specificity, accuracy) are
+correspondingly not comparable across cohorts on face value. This is why
+ROC-AUC, which is threshold and to first order prevalence-invariant, is
+this study's primary endpoint throughout where we use class-weighted
+cross-entropy for cross-cohort training (Section~\ref{sec:training}), that
+corrects for training-set imbalance but does not by itself correct for a
+prevalence mismatch between training and test cohorts, which remains a
+limitation (Section~\ref{sec:limitations}).
+
+We evaluate throughout under three protocols P1 (image-level $k$-fold,
+$k{=}10$), P2 (subject-grouped $k$-fold, same backbone/preprocessing/
+augmentation/splitting code for every result in this study), and
+cross-cohort (train on one cohort's spiral task, test on the other's, no
+shared subjects) and report subject-level ROC-AUC as the primary
+endpoint. The baseline replication under these three protocols is itself
+a result of this study (it establishes the evaluation gap the rest of the
+paper investigates the mechanism of) and is reported in
+Section~\ref{sec:baseline}, not here.
+
+\subsection{Pipeline overview}
+Figure~\ref{fig:architecture} summarises the full study as two lanes sharing
+a common front end. Every image is first resolution-standardised and
+decomposed into an ink mask (Section~\ref{sec:masking}), which yields the
+three views (full / background / trace) used throughout. The
+\emph{diagnostic} lane (Section~\ref{sec:probe}) passes all three views
+through a frozen, untrained feature extractor to measure subject
+re-identification and cohort decodability directly. The causal lane
+(Sections~\ref{sec:suppression}--\ref{sec:stats}) instead reconstructs a
+suppressed image from the background/trace decomposition, trains a
+classifier on the same harness used for raw images, and compares
+honest-protocol AUC between the two via a paired, subject-level bootstrap.
+The two lanes answer different questions where is the signal
+versus does removing it help and Section~\ref{sec:discussion} depends on reading
+their outputs together, not on either alone.
+
+Reading the two lanes together yields one of three outcomes, which we
+label \textbf{Fork A/B/C} and use throughout the rest of this study:
+\begin{description}[leftmargin=1.6em,style=nextline]
+\item[Fork A - mechanism confirmed and useful.] The causal lane's paired
+      $\Delta$AUC confidence interval lies wholly above zero, \emph{and}
+      the diagnostic lane confirms the targeted signal dropped in the
+      intervened data. The intervention helped, and we know why.
+\item[Fork B - mechanism confirmed, not useful.] The diagnostic lane
+      confirms the targeted signal dropped in the intervened data (the
+      manipulation worked as intended), but the causal lane's CI includes
+      zero. The intervention did what it was supposed to; it just was not
+      the (whole) answer.
+\item[Fork C - intervention uninterpretable.] The causal lane shows a
+      shift in either direction without the diagnostic lane
+      confirming the targeted signal actually changed. Any AUC movement
+      here cannot be attributed to the intended mechanism and must be
+      treated as a possible artefact (e.g.\ a different, unidentified leak,
+      or a preprocessing side effect) rather than as support for the
+      hypothesis.
+\end{description}
+This is the specific test that lets us tell a genuine null (Fork B) apart
+from a failed manipulation (Fork C): a null causal result is only
+interpretable once the diagnostic lane has confirmed the manipulation
+happened.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.84\linewidth]{handwriting_architecture.pdf}
+\caption{Pipeline overview. Step 1--3: a shared preprocessing front end
+(resolution standardisation, illumination flattening, Sauvola thresholding)
+produces the ink mask $M$. Step 4: three masked views of every image, shown
+here as real cropped samples from the same HandPD spiral drawing pictured
+in full in Figure~\ref{fig:maskpanel} full keeps both the printed
+guide and pen stroke, background-only blanks everything the
+intensity-only mask $M$ labels as ink (both the guide and the pen stroke
+together, since $M$ does not distinguish between them by colour),
+\emph{trace-only} keeps only that same combined ink region and blanks
+everything else. The
+diagnostic lane (left) measures
+subject and cohort signal directly with a frozen feature extractor. The
+causal lane (right) instead intervenes on the data, retrains the full
+classifier, and tests whether the honest-protocol AUC changes. Output chips
+show exactly which table or figure each lane feeds.}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{Positive-control construction}
+\label{sec:positive-control-methods}
+Before trusting a Fork-B (null) verdict anywhere in this study, we also
+need independent evidence that the probe-suppress-retrain pipeline itself
+is capable of registering a genuine, known shortcut when one is
+deliberately present otherwise a null result could simply mean the
+method is blind, not that suppression truly does not help. We construct a
+positive control with a ground-truth answer: a synthetic, disease-correlated
+marker injected into a mirror copy of HandPD spiral, confined by
+construction to background pixels only (a faint corner patch, PD-label
+darker than HC-label, never overlapping the ink mask;
+\texttt{inject\_marker.py}). Because we built this marker ourselves, we
+know in advance what should happen: the diagnostic probe
+(Section~\ref{sec:probe}) should detect it as a disease-decoding shortcut
+in background-only mode, suppression (Section~\ref{sec:suppression})
+should remove it, and this should read as Fork A (or, if the retrain step
+does not fully track the diagnostic result, expose a limitation of the
+causal lane itself), unlike the Fork-B verdicts we report for the real
+acquisition signal. Results are reported in
+Section~\ref{sec:positive-control}.
+
+\subsection{Masking modes}
+\label{sec:masking}
+For each image we define three views: \textbf{full} (the unmodified image),
+\textbf{background-only} (the image with the estimated ink/stroke pixels
+removed, i.e.\ paper, scanning artefacts and any pre-printed guide), and
+\textbf{trace-only} (the estimated ink/stroke pixels alone, i.e.\ the drawn
+line). The ink mask is obtained by first flattening uneven illumination via
+morphological closing on the grayscale image, then applying Sauvola
+adaptive thresholding to the flattened image, followed by connected-component
+speck filtering to remove sub-pixel noise.
+
+Let $I$ be the grayscale image and $B=\mathrm{close}_{k}(I)$ its morphological
+closing with an elliptical structuring element of size
+$k=\max(15,\,\lfloor 0.10\,h\rfloor \mid 1)$, where $\mid$ denotes a
+bitwise OR with $1$, used here purely to force the preceding value to the
+next odd integer when it is even (OpenCV's morphology and thresholding
+kernels require an odd side length. $h$ is the image height). Illumination-flattening divides out the estimated background:
+\begin{equation}
+I_{\mathrm{flat}}(x,y)=\mathrm{clip}\!\left(\frac{I(x,y)}{\max(B(x,y),1)}\times 255,\ 0,\ 255\right).
+\label{eq:flatten}
+\end{equation}
+The ink mask $M$ is then obtained by Sauvola adaptive thresholding of
+$I_{\mathrm{flat}}$ over a local window of side $w=\max(15,\,\lfloor
+\min(h,\mathrm{width})/20\rfloor \mid 1)$, with local mean $m(x,y)$ and
+standard deviation $\sigma(x,y)$:
+\begin{equation}
+T(x,y)=m(x,y)\Bigl[1+k_S\Bigl(\tfrac{\sigma(x,y)}{R}-1\Bigr)\Bigr],
+\qquad
+M=\{(x,y): I_{\mathrm{flat}}(x,y) < T(x,y)\},
+\label{eq:sauvola}
+\end{equation}
+with $k_S=0.2$ and dynamic range $R=128$, followed by removing connected
+components smaller than $\max(8,\,2\times10^{-5}|M|)$ pixels. The three
+views are then $V_{\mathrm{full}}=I$, $V_{\mathrm{trace}}(x,y)=I(x,y)$ if
+$(x,y)\in M$ else white, and $V_{\mathrm{background}}(x,y)=I(x,y)$ if
+$(x,y)\notin M$ else white. On HandPD, the pre-printed guide
+spiral partially overlaps the pen trace, so the trace-only view there still
+retains some template; this split is directional rather than exact, and we
+treat within-mode differences smaller than 0.05 as noise rather than signal.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\linewidth]{masking_panel.png}
+\caption{Example masking modes for one HandPD spiral (top) and one Kaggle
+spiral (bottom). The Sauvola mask $M$ thresholds on intensity alone, not
+colour, so on HandPD it captures both the pre-printed guide spiral (dark)
+and the patient's pen stroke (blue) together as a single ink region
+background-only blanks both together rather than cleanly isolating one
+from the other, and trace-only likewise retains both together rather than
+isolating the pen. This is the directional-not-exact trace/background
+split described above it is a colour confound \emph{within} the
+intensity mask, not a case of one colour being selectively retained the
+pen-colour-separated correction in Section~\ref{sec:handpd-clean} resolves
+it directly. On Kaggle, which has no printed guide, the separation is
+clean.}
+\label{fig:maskpanel}
+\end{figure}
+
+\subsection{Identity and cohort probe}
+\label{sec:probe}
+For each masking mode we extract 1280-dimensional pooled features from an
+EfficientNet-B0 backbone pretrained on ImageNet, with the classification
+head removed and no fine-tuning (frozen features the same architecture
+family used in the baseline replication (Section~\ref{sec:baseline}) and
+causal lane below, but here explicitly untrained on any PD data, so any
+signal measured cannot come from disease-specific learning).
+We report two quantities. Let $f_i\in\mathbb{R}^{1280}$ be the pooled
+feature of drawing $i$, $N$ the total number of drawings in the given mode,
+and $\mathrm{subj}(i)$ its subject label.
+\begin{itemize}
+  \item \textbf{Subject re-identification@1}: for each drawing $i$, its
+        nearest neighbour by cosine similarity, excluding itself,
+        \begin{equation}
+        \hat\jmath(i)=\operatorname*{arg\,max}_{j\neq i}\ \frac{f_i\cdot f_j}{\lVert f_i\rVert\,\lVert f_j\rVert},
+        \qquad
+        \mathrm{ReID@1}=\frac{1}{N}\sum_{i=1}^{N}\mathbb{1}\bigl[\mathrm{subj}(\hat\jmath(i))=\mathrm{subj}(i)\bigr].
+        \label{eq:reid}
+        \end{equation}
+        Chance is the mean, over $S$ subjects, of $(n_k-1)/(N-1)$ where
+        $n_k$ is subject $k$'s drawing count.
+  \item \textbf{Cohort decodability}: balanced accuracy of a logistic
+        regression classifying HandPD vs.\ Kaggle,
+        $\mathrm{BalAcc}=\tfrac{1}{2}\bigl(\mathrm{TPR}+\mathrm{TNR}\bigr)$,
+        evaluated under
+        group $k$-fold cross-validation grouped by subject (so no subject's
+        drawings span both folds), against a chance level of 0.50.
+\end{itemize}
+Every logistic-regression probe in this study (cohort decodability above
+disease and subject-identity probes in
+Sections~\ref{sec:background-disease} and~\ref{sec:handpd-clean}) uses
+scikit-learn's default solver (\texttt{lbfgs}) and $\ell_2$ penalty with
+inverse regularisation strength $C=1$ (scikit-learn's default), raised to
+\texttt{max\_iter=2000} to ensure convergence on the 1280-dimensional
+frozen features we did not tune $C$ or the penalty type, since the probe's
+purpose is to detect the presence of decodable signal at a fixed, declared
+setting, not to optimise classification accuracy.
+Because frozen ImageNet features are not tuned to handwriting, they tend to
+\emph{understate} trace-intrinsic identity signal trace-mode
+re-identification reported here is therefore a floor, not a ceiling, on
+what a trained model could exploit.
+
+\subsection{Background/template suppression (``2a'')}
+\label{sec:suppression}
+We label this intervention ``2a'' for consistency with this study's
+internal code and released data file names
+(\texttt{mech2\_suppression.py}, \texttt{Datasets\_2a/}): it is the first
+(``a'') of two variants of our second (``2'') de-leaking mechanism, the
+other being an unused, intensity-based alternative
+(\texttt{suppress\_template\_intensity()}) not reported in this paper. We
+build a suppressed mirror of both cohorts using the same ink-mask
+pipeline described above illumination flattening, Sauvola thresholding,
+and reconstruction of a clean image retaining only the segmented stroke on
+a uniform background. Both cohorts are standardised to the same target
+height $h_{\mathrm{target}}=512$\,px before suppression, by scale factor
+\begin{equation}
+s=\frac{h_{\mathrm{target}}}{h},\qquad (w',h')=\bigl(\mathrm{round}(w\cdot s),\ h_{\mathrm{target}}\bigr),
+\label{eq:resize}
+\end{equation}
+so that differing native resolution between cohorts cannot itself become a
+spurious acquisition marker. We manually inspected a sample of suppressed
+images from both cohorts to confirm strokes were not thinned or broken and,
+where relevant, that the printed guide was handled as intended before
+treating any downstream number as meaningful.
+
+\subsection{Training configuration}
+\label{sec:training}
+Every trained-classifier result in this study the baseline replication
+(Section~\ref{sec:baseline}), the causal-lane retraining
+(Section~\ref{sec:stats}), and the worked-example checkpoint
+(Section~\ref{sec:worked}) uses the same configuration: ImageNet-pretrained
+backbone with the classifier head replaced by a 2-way linear layer,
+fine-tuned end to end with AdamW (learning rate $10^{-4}$, weight decay
+$10^{-4}$), batch size 16, up to 40 epochs with early stopping on
+validation AUC (patience 8 epochs, no improvement), input images resized
+to $224\times224$ and normalised with ImageNet channel statistics. The
+validation set used for this early-stopping criterion differs by
+protocol, and we disclose this precisely rather than leaving it
+ambiguous. In cross-cohort training, the validation slice is a
+subject-grouped $\sim$15\% split carved out of the training cohort
+only (never touching the target cohort's data), so checkpoint selection
+cannot see anything from the external-validation test set. In the
+within-cohort P1/P2/LOSO protocols, by contrast, each fold's held-out test
+split is also the validation set used for early stopping on that fold
+there is no further inner split of the training data. This means the
+reported checkpoint for each within-cohort fold is the epoch with the best
+AUC on that fold's own test data, which is a mild form of model
+selection on the test set and can inflate the within-cohort AUC estimates
+modestly (though it cannot inflate them by picking which data is trained
+on, only by picking which epoch's weights are kept). We flag this
+explicitly in Section~\ref{sec:limitations} as a methodological caveat on
+every within-cohort number (P1, P2, LOSO) in this study, while noting it
+does not apply to the cross-cohort comparisons that this study's main
+causal claims rest on most heavily. Training-fold
+images are augmented with random rotation ($\pm12^{\circ}$), random affine
+translation ($\pm5\%$) and scaling ($0.9$--$1.1\times$), and colour jitter
+(brightness/contrast $\pm0.1$) augmentation is applied inside the training
+fold only, after splitting, so it cannot itself become a leakage channel.
+Class-weighted cross-entropy is used in cross-cohort training to counter
+HandPD's class imbalance ($\sim$80\% PD). All experiments ran on a single
+NVIDIA RTX 3050 (4\,GB) GPU, PyTorch 2.5.1 (CUDA 12.1), scikit-learn,
+OpenCV and scikit-image; wall-clock time per (architecture, seed) fold was
+under 15 minutes on this hardware.
+
+\subsection{Statistical comparison}
+\label{sec:stats}
+For the causal test, we used the same evaluation harness as the baseline
+replication (Section~\ref{sec:baseline}) unchanged in optimiser,
+augmentation and stopping criteria on raw versus suppressed images,
+under (i) subject-grouped within-cohort evaluation and
+(ii) cross-cohort external validation (train on one cohort, test on the
+other, no shared subjects), each over four independently verified, matched
+seeds (999, 1001--1003; Section~\ref{sec:limitations}). \textbf{We restrict
+this comparison to EfficientNet-B0}, the backbone our baseline replication
+(Table~\ref{tab:baseline}) identifies as the stable one for cross-cohort
+evaluation; VGG-16 and ResNet-50 showed high across-seed variance in that
+setting (VGG-16 Kaggle$\to$HandPD std $\pm0.224$) and are not informative
+for a two-condition paired comparison at this sample size.
+
+We report the paired difference in subject-level ROC-AUC via a subject-level
+bootstrap. Predictions are first aggregated to one mean probability per
+(seed, subject). For seed $s$ with common subject set $\mathcal{U}_s$, we
+draw $B=2000$ resamples with replacement $\mathcal{U}_s^{(b)}$ and compute
+\begin{equation}
+\Delta_s^{(b)}=\mathrm{AUC}\bigl(y_{\mathcal{U}_s^{(b)}},\hat p^{\,\mathrm{supp}}_{\mathcal{U}_s^{(b)}}\bigr)
+              -\mathrm{AUC}\bigl(y_{\mathcal{U}_s^{(b)}},\hat p^{\,\mathrm{raw}}_{\mathcal{U}_s^{(b)}}\bigr).
+\label{eq:boot}
+\end{equation}
+Pooling $\{\Delta_s^{(b)}\}$ over all seeds and resamples gives the mean
+$\Delta$AUC, a 95\% confidence interval from the 2.5th/97.5th percentiles,
+and $P(\Delta\mathrm{AUC}>0)$ as the pooled sample proportion with
+$\Delta_s^{(b)}>0$. When a prediction
+file contains multiple architectures, they are never pooled within a
+subject/seed cell for this statistic each comparison is architecture-pure.
+
+\subsection{Statistical power}
+\label{sec:power}
+Because the causal comparison rests on 4 seeds and, in the cross-cohort
+case, 28 total subjects, an absence of a detected effect is only
+informative alongside what effect size the design could have detected. We
+approximate each comparison's standard error from its bootstrap 95\% CI
+half-width ($\mathrm{SE}\approx(\mathrm{CI}_{\mathrm{hi}}-\mathrm{CI}_{\mathrm{lo}})/(2\times1.96)$)
+and report the minimum detectable effect (MDE) at conventional 80\% power,
+two-sided $\alpha=0.05$ ($\mathrm{MDE}\approx2.80\times\mathrm{SE}$). This
+is an approximation, not a simulation-based power analysis, and is
+reported as such it is intended to calibrate how much weight a null
+result in Section~\ref{sec:results-causal} can bear, not as a precise
+sample-size justification. This MDE framing serves the same ``evidence of
+absence versus absence of evidence'' purpose that formal equivalence
+testing (two one-sided tests, TOST) is designed to address more
+rigorously \cite{lakens2017}: a TOST procedure would require us to specify
+a smallest-effect-size-of-interest a priori and would yield a direct
+statistical rejection of ``an effect at least that large exists,'' rather
+than the MDE's looser ``here is roughly what we could and could not have
+detected.'' We did not pre-specify an equivalence bound and so report the
+MDE approximation instead a formally pre-registered TOST bound is a
+natural improvement for any follow-up study making the same kind of null
+claim.
+
+\subsection{Implementation: algorithmic summary}
+\label{sec:implementation}
+Sections~\ref{sec:masking}--\ref{sec:stats} describe each procedure in
+prose and, where the operation is a formula, as an equation. Algorithms
+\ref{alg:mask}--\ref{alg:boot} give the same four procedures as pseudocode,
+matching the released implementation line for line, so that the exact
+order of operations in particular where augmentation and masking
+sit relative to the train/test split, which is the detail on which a
+leakage study lives or dies is unambiguous.
+
+\begin{algorithm}[H]
+\caption{Masked-view construction (\texttt{get\_trace\_mask},
+Section~\ref{sec:masking})}
+\label{alg:mask}
+\begin{algorithmic}[1]
+\Require raw image $I$, target height $h_{\mathrm{target}}$
+\Ensure views $V_{\mathrm{full}}, V_{\mathrm{background}}, V_{\mathrm{trace}}$
+\State $I \gets \Call{StandardiseResolution}{I, h_{\mathrm{target}}}$ \Comment{Eq.~\ref{eq:resize}}
+\State $G \gets \Call{Grayscale}{I}$
+\State $k \gets \max(15,\ \lfloor 0.10 \cdot \mathrm{height}(G) \rfloor \mid 1)$
+\State $B \gets \Call{MorphologicalClose}{G, \text{ellipse}(k)}$
+\State $I_{\mathrm{flat}} \gets \Call{Clip}{G / \max(B,1) \times 255,\ 0,\ 255}$ \Comment{Eq.~\ref{eq:flatten}}
+\State $w \gets \max(15,\ \lfloor \min(h,\mathrm{width})/20 \rfloor \mid 1)$
+\State $T \gets \Call{SauvolaThreshold}{I_{\mathrm{flat}}, w, k_S{=}0.2, R{=}128}$ \Comment{Eq.~\ref{eq:sauvola}}
+\State $M \gets \{(x,y) : I_{\mathrm{flat}}(x,y) < T(x,y)\}$
+\State $M \gets \Call{RemoveSmallComponents}{M,\ \min\_area}$ \Comment{speck filter}
+\State $V_{\mathrm{full}} \gets I$
+\State $V_{\mathrm{trace}} \gets I$ with pixels $\notin M$ set to white
+\State $V_{\mathrm{background}} \gets I$ with pixels $\in M$ set to white
+\State \Return $V_{\mathrm{full}}, V_{\mathrm{background}}, V_{\mathrm{trace}}, M$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Signal-localisation probe (\texttt{leak\_decomposition\_probe.py},
+Section~\ref{sec:probe})}
+\label{alg:probe}
+\begin{algorithmic}[1]
+\Require image set $\mathcal{D}$ with (subject, cohort) labels; mode $\in
+\{\mathrm{full}, \mathrm{background}, \mathrm{trace}\}$; frozen backbone
+$\phi$
+\Ensure $\mathrm{ReID@1}$, cohort $\mathrm{BalAcc}$
+\For{$i \in \mathcal{D}$}
+  \State $(\cdot,\cdot,V_i,\cdot) \gets \Call{Algorithm}{1}(I_i)$ restricted to \textit{mode}
+  \State $f_i \gets \phi(V_i)$ \Comment{1280-d pooled features, no fine-tuning}
+\EndFor
+\For{$i \in \mathcal{D}$}
+  \State $\hat\jmath(i) \gets \arg\max_{j\neq i}\ \cos(f_i, f_j)$ \Comment{Eq.~\ref{eq:reid}}
+\EndFor
+\State $\mathrm{ReID@1} \gets \frac{1}{N}\sum_i \mathbb{1}[\mathrm{subj}(\hat\jmath(i)){=}\mathrm{subj}(i)]$
+\State fit logistic regression $\mathrm{cohort} \sim f$ under
+       $\mathrm{GroupKFold}(\mathrm{groups}{=}\mathrm{subject})$
+\State $\mathrm{BalAcc} \gets \tfrac{1}{2}(\mathrm{TPR}+\mathrm{TNR})$ on held-out folds
+\State \Return $\mathrm{ReID@1}, \mathrm{BalAcc}$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Background/template suppression, ``2a'' (\texttt{mech2\_suppression.py},
+Section~\ref{sec:suppression})}
+\label{alg:suppress}
+\begin{algorithmic}[1]
+\Require dataset root $\mathcal{R}$ (directory tree of raw images)
+\Ensure mirrored root $\mathcal{R}'$ of suppressed images
+\For{each image path $p \in \mathcal{R}$ (tree walk)}
+  \State $I \gets \Call{Read}{p}$
+  \State $(\cdot,\cdot,\cdot,M) \gets \Call{Algorithm}{1}(I)$
+  \State $I' \gets$ white canvas with $I$'s pixels at $M$ \Comment{= $V_{\mathrm{trace}}$}
+  \State write $I'$ to the corresponding path in $\mathcal{R}'$
+\EndFor
+\State \Return $\mathcal{R}'$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Paired subject-level bootstrap $\Delta$AUC
+(\texttt{compare\_2a\_vs\_baseline.py}, Section~\ref{sec:stats})}
+\label{alg:boot}
+\begin{algorithmic}[1]
+\Require baseline predictions $P_{\mathrm{raw}}$, treatment predictions
+$P_{\mathrm{supp}}$ (same architecture, same seeds), bootstrap count $B{=}2000$
+\Ensure mean $\Delta$AUC, 95\% CI, $P(\Delta\mathrm{AUC}{>}0)$
+\State aggregate $P_{\mathrm{raw}}, P_{\mathrm{supp}}$ to one mean probability per (seed, subject)
+\State $\Delta \gets [\,]$
+\For{seed $s$ in common seeds}
+  \State $\mathcal{U}_s \gets$ subjects present in both $P_{\mathrm{raw}}$ and $P_{\mathrm{supp}}$ at seed $s$
+  \For{$b = 1$ \textbf{to} $B$}
+    \State $\mathcal{U}_s^{(b)} \gets$ resample $\mathcal{U}_s$ with replacement
+    \State append $\mathrm{AUC}(P_{\mathrm{supp}}, \mathcal{U}_s^{(b)}) - \mathrm{AUC}(P_{\mathrm{raw}}, \mathcal{U}_s^{(b)})$ to $\Delta$ \Comment{Eq.~\ref{eq:boot}}
+  \EndFor
+\EndFor
+\State \Return $\mathrm{mean}(\Delta)$, $[\mathrm{percentile}_{2.5}(\Delta), \mathrm{percentile}_{97.5}(\Delta)]$, $\mathrm{mean}(\Delta{>}0)$
+\end{algorithmic}
+\end{algorithm}
+
+% ======================================================================
+\section{Results}
+
+\subsection{Baseline replication: image-level vs.\ subject-grouped and cross-cohort evaluation}
+\label{sec:baseline}
+Before investigating the mechanism, we establish the evaluation gap
+ourselves, under the exact backbone, preprocessing, augmentation and
+splitting code used for every other result in this study (P1: stratified
+image-level $k$-fold, $k{=}10$; P2: subject-grouped $k$-fold; cross-cohort:
+train on one cohort's spiral task, test on the other's, no shared
+subjects; five random seeds originally, subsequently four independently
+verified matched seeds for the EfficientNet-B0 cells see the table
+caption for exactly which cells were re-verified; subject-level ROC-AUC).
+Table~\ref{tab:baseline}
+reports the result. On HandPD spiral, subject-grouped evaluation reduces
+mean AUC relative to image-level splitting for all three architectures, and
+cross-cohort external validation falls further for all three. VGG-16 and
+ResNet-50 show markedly higher across-seed variance than EfficientNet-B0 in
+the cross-cohort setting most strikingly VGG-16 on Kaggle$\to$HandPD,
+std $\pm0.224$, wide enough that individual seeds range from near-chance to
+near-ceiling which is why the causal comparison in
+Section~\ref{sec:stats} anchors on EfficientNet-B0 alone.
+
+\begin{table}[H]
+\centering
+\caption{Baseline replication, subject-level ROC-AUC (mean $\pm$ SD).
+P1 = image-level $k$-fold ($k{=}10$); P2 = subject-grouped $k$-fold
+($k{=}10$, with a defensive fallback that reduces $k$ automatically if
+the minority class ever has fewer than 10 subject groups this fallback
+does not trigger for any number reported in this paper, since every
+reported cohort has at least 14 subjects in its smaller class; it exists
+only to fail safely on a smaller dataset); cross-cohort = external validation,
+no shared subjects. The HandPD spiral row and both EfficientNet-B0
+cross-cohort cells are independently verified under explicit, logged
+settings (four matched seeds), completing verification of every cell used
+in this study's causal comparisons (Table~\ref{tab:causal}). The VGG-16
+and ResNet-50 cross-cohort cells are carried over from this study's
+original harness output and were not independently re-verified within
+this revision (Section~\ref{sec:limitations}).}
+\label{tab:baseline}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llcc}
+\toprule
+Comparison & Model & AUC (P1 / within-cohort) & AUC (P2 / cross-cohort) \\
+\midrule
+HandPD spiral, P1 vs.\ P2 & EfficientNet-B0 & $0.991\pm0.006$ & $0.944\pm0.005$ \\
+\midrule
+ & & HandPD$\to$Kaggle & Kaggle$\to$HandPD \\
+\cmidrule(lr){3-3}\cmidrule(lr){4-4}
+Cross-cohort & VGG-16 & $0.783\pm0.006$ & $0.666\pm0.224$ \\
+Cross-cohort & ResNet-50 & $0.601\pm0.029$ & $0.656\pm0.068$ \\
+Cross-cohort & EfficientNet-B0 & $0.703\pm0.049$ (verified) & $0.647\pm0.056$ (verified) \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{baseline_fig.png}
+\caption{Cross-cohort AUC by architecture and direction, from
+Table~\ref{tab:baseline} (mean $\pm$ SD). EfficientNet-B0 is the only
+architecture independently re-verified in this revision (green); VGG-16
+and ResNet-50 remain the original, unverified five-seed estimates (blue).
+VGG-16 and ResNet-50's wide error bars in the Kaggle$\to$HandPD direction
+illustrate why the causal comparison anchors on EfficientNet-B0 alone.}
+\label{fig:baseline}
+\end{figure}
+
+The HandPD spiral row was corrected during revision: an initial run
+under-specified the fold count for this comparison (3 folds rather than
+the intended 10), and we replaced it with four independently verified
+seeds under explicit, logged settings ($k{=}10$, 40 epochs;
+Section~\ref{sec:training}), which gave a consistent, tightly-reproducible
+result ($\mathrm{SD}\le0.006$ across seeds) modestly higher than the
+original. The same verification was subsequently extended to both
+EfficientNet-B0 cross-cohort cells (four matched seeds, identical
+settings). HandPD$\to$Kaggle moved only modestly ($0.685\to0.703$, within
+the original cell's own standard deviation). Kaggle$\to$HandPD moved
+further in absolute terms ($0.703\to0.647$) but the verified estimate
+falls well within the original cell's very wide standard deviation
+($\pm0.130$, driven by only 28 Kaggle training subjects) and the verified
+run's own SD is markedly tighter ($\pm0.056$ vs.\ $\pm0.130$) consistent
+with a genuinely noisy, underpowered original estimate rather than a
+directional bias from the fold-count bug. Neither cross-cohort correction
+changed this study's qualitative conclusions. We disclose all corrections
+explicitly rather than silently revising the numbers, and flag in
+Section~\ref{sec:limitations} that the remaining cross-cohort cells
+(VGG-16 and ResNet-50, both directions), generated by the same original
+harness invocation, have not yet received the same independent
+re-verification.
+
+Table~\ref{tab:baseline} in fact separates two distinct phenomena that the
+introduction's framing risks conflating, and we distinguish them
+explicitly from here on. \textbf{Subject-identity leakage} is the
+image-level/subject-grouped gap on HandPD spiral is comparatively small
+in this design: $0.991\to0.944$, $\Delta\mathrm{AUC}\approx-0.05$.
+\textbf{Cross-cohort acquisition/domain shift} is subject-grouped
+within-cohort versus external validation on a wholly different cohort
+is several times larger: $0.944\to0.703/0.647$,
+$\Delta\mathrm{AUC}\approx-0.27$. Both are consistent with the general
+diagnosis that evaluation design, not disease signal, drives a large share
+of reported accuracy \cite{tampu2022,geirhos2020,degrave2021}, but they are
+different mechanisms with different remedies: subject-grouped splitting
+addresses the first; it does nothing by construction for the second. The
+background/template suppression intervention this study tests targets the
+acquisition/domain channel specifically (Section~\ref{sec:suppression}),
+not identity leakage as such, and we frame the rest of this study around
+that distinction rather than the fused ``leakage'' language common in this
+literature. We also note the field's headline 95--99\% figures are
+typically reported as accuracy, not AUC; the two are not directly
+comparable; where the datasets used here are imbalanced (HandPD $\sim$80\%
+PD), accuracy alone would overstate discrimination relative to AUC, which
+is why AUC is this study's primary endpoint throughout.
+
+What this replication does not establish is
+where, spatially, the signal responsible for the domain-shift
+component lives the question the rest of this study addresses.
+
+\subsection{Validating the pipeline: a positive control}
+\label{sec:positive-control}
+We validate the probe-suppress-retrain pipeline itself using a synthetic,
+disease-correlated marker injected into a mirror copy of HandPD spiral
+and confined by construction to background pixels only (construction
+methodology in Section~\ref{sec:positive-control-methods}); because we
+built this marker ourselves,
+we know in advance what should happen (Fork A), unlike the Fork-B
+verdicts we report for the real acquisition signal below.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{positive_control_fig.png}
+\caption{Positive-control summary. Left: background-mode disease
+decodability collapses from near-ceiling to chance once the injected
+marker is suppressed (step a$\to$b). Right: honest-protocol (P2)
+AUC drops only partially, from $0.994$ to $0.972$, still above the
+marker-free baseline of $0.944$ (step c) - the residual discussed in
+Limitations point Ten.}
+\label{fig:positive-control}
+\end{figure}
+
+\textbf{Step (a) - the probe detects the injected marker.} On the
+raw-marked mirror, a frozen-feature logistic-regression probe
+(Section~\ref{sec:probe}) decodes the disease label from
+background-only pixels alone with AUC $=0.991$ (balanced accuracy
+$0.936$) - consistent with a background-confined shortcut precisely the
+size and location we injected, and confirming the probe methodology can
+detect such a shortcut when it exists.
+
+\textbf{Step (b) - suppression removes it.} On the suppressed-marked
+mirror (the marker mirror pushed through the same background/template
+suppression pipeline as every other suppressed image in this study),
+background-only disease-decodability collapses to chance AUC $=0.461$
+(balanced accuracy $0.500$), a drop of $0.53$ AUC. This is the diagnostic
+signature Fork A/B require before a causal result is interpretable at
+all, and it confirms the suppression step itself removes a genuine
+background shortcut when one is present the same intervention that,
+applied to the real cohorts, collapses real background decodability to
+chance (Table~\ref{tab:probe-supp}) rather than merely appearing to.
+
+\textbf{Step (c) - does removal show up in honest-protocol AUC?} We then
+trained the full classifier (identical harness, five seeds 1--5,
+EfficientNet-B0) on the marked mirror before and after suppression, subject
+level. Raw-marked: P1 $=1.000$, P2 (subject-grouped) $=0.994\pm0.005$.
+Suppressed-marked: P1 $=0.999\pm0.001$, P2 $=0.972\pm0.016$
+(Figure~\ref{fig:positive-control}). The injected
+marker inflates honest-protocol AUC by roughly $0.994-0.944=0.050$ above
+this study's independently verified, marker-free HandPD spiral baseline
+(Table~\ref{tab:baseline}). suppression recovers only part of this,
+$0.994\to0.972$, a $\Delta\mathrm{AUC}$ of $-0.022$, leaving a residual
+$0.972-0.944\approx0.028$ still unaccounted for even though the
+background-level probe (step b) shows the marker itself fully collapsed to
+chance. We read this as a genuine, if unwelcome, positive-control finding
+in its own right: a manipulation that the diagnostic lane confirms worked
+completely (background AUC to chance) can still leave a partial,
+unexplained residual in the trained classifier's honest AUC, plausibly
+because a fine-tuned CNN and a frozen-feature linear probe are not
+perfectly matched in what they are sensitive to, or because the
+suppression pipeline's reconstruction introduces some other, more subtle
+CNN-detectable artefact distinct from the marker itself. Either way, this
+means a clean diagnostic-lane result is necessary but may not always be
+fully sufficient to guarantee the causal lane's AUC movement tracks it
+one-for-one in magnitude a caveat we carry into our reading of the real,
+non-marker Fork-B results elsewhere in this study (Section~\ref{sec:limitations}).
+It does not, however, undermine the core positive-control conclusion: a
+known shortcut produces a large, detectable diagnostic signature and a
+large, detectable AUC inflation (step a, c-raw), and suppression measurably
+reduces both (step b, c-suppressed) the qualitative pattern this
+pipeline is designed to detect. The real acquisition signal tested
+elsewhere in this study shows no comparable pattern in either lane, which
+is why we read it as a genuine Fork-B null rather than a failure of the
+method to register a real effect.
+
+\subsection{Raw images: background is a perfect cohort marker, but identity is not background-confined}
+\label{sec:cohort-marker}
+
+\begin{table}[H]
+\centering
+\caption{Identity and cohort probe on raw images (940 drawings, 120
+subjects; chance re-identification@1 $=0.008$, chance cohort balanced
+accuracy $=0.50$).}
+\label{tab:probe-raw}
+\begin{tabular}{lcc}
+\toprule
+Mode & Subject re-ID@1 & Cohort balanced accuracy \\
+\midrule
+Full        & 0.327 & 1.000 \\
+Background  & 0.251 & 1.000 \\
+Trace       & 0.269 & 1.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Background alone is sufficient to separate the two cohorts perfectly. This
+confirms that an acquisition-level marker independent of any disease
+signal is present in the data and available to any model, exactly the
+kind of confound that would inflate cross-cohort performance for the wrong
+reason. However, subject re-identification does not collapse in
+background-only mode relative to trace-only mode (0.251 vs.\ 0.269, against
+a full-image value of 0.327): identity is carried by both channels, not
+confined to the background. This is the point at which the noise-floor
+rule stated in Section~\ref{sec:probe} flags a weak a priori case for
+background suppression closing the honest gap on its own. We note this
+rule was stated in this manuscript before the causal comparison
+(Section~\ref{sec:results-causal}) was run, but it was not formally
+registered (e.g.\ on OSF or AsPredicted) before analysis began, and we
+therefore do not describe it as pre-registered.
+
+\subsection{Controls: label-shuffle and stratified re-identification}
+\label{sec:reid-controls}
+Two further checks address the retrieval metric itself. \textbf{Label-shuffle
+negative control:} we permute the (subject, cohort) labels 30 times,
+holding the nearest-neighbour assignment fixed, and recompute
+re-ID@1 under each permutation. The empirical shuffle distribution
+(mean $0.010\pm0.005$, 95\% range $0.005$--$0.021$) is close to, and
+brackets, the analytical chance formula used throughout ($0.007$),
+confirming both that the chance formula is accurate and that the observed
+re-ID@1 ($0.327$ pooled, full view) is not an artefact of the retrieval
+implementation it sits an order of magnitude above the entire empirical
+null distribution. \textbf{Stratified re-identification:} because cohort is
+perfectly decodable (Table~\ref{tab:probe-raw}), a pooled nearest-neighbour
+search over both cohorts effectively never crosses cohort boundaries in
+practice, so the pooled chance level understates the correct baseline for
+a within-cohort retrieval task. Table~\ref{tab:reid-strat} reports re-ID
+stratified by cohort and by cohort$\times$task, each against its own
+matched chance level, together with re-ID@5 and mean average precision
+(mAP), which are less brittle than re-ID@1 to a single near-miss neighbour.
+
+\begin{table}[H]
+\centering
+\caption{Subject re-identification, full-colour view, stratified by
+cohort and task, each against its own matched chance level. Regenerated
+2026-08-26 with \texttt{leak\_decomposition\_probe.py save features} and
+\texttt{stratified\_reid.py} to resolve a discrepancy between an earlier
+version of this table and Table~\ref{tab:probe-raw} (the pooled row must
+equal Table~\ref{tab:probe-raw}'s ``Full'' row by construction; the values
+below now do, exactly).}
+\label{tab:reid-strat}
+\begin{tabular}{lccccc}
+\toprule
+Stratum & $n$ & re-ID@1 & re-ID@5 & mAP & chance \\
+\midrule
+Pooled (as Table~\ref{tab:probe-raw}) & 940 & 0.327 & 0.640 & 0.146 & 0.007 \\
+HandPD (within-cohort)  & 736 & 0.312 & 0.592 & 0.129 & 0.010 \\
+Kaggle (within-cohort)  & 204 & 0.377 & 0.814 & 0.227 & 0.031 \\
+HandPD spiral only      & 368 & 0.380 & 0.668 & 0.341 & 0.008 \\
+HandPD meander only     & 368 & 0.245 & 0.516 & 0.232 & 0.008 \\
+Kaggle spiral only      & 102 & 0.382 & 0.775 & 0.427 & 0.026 \\
+Kaggle wave only        & 102 & 0.373 & 0.853 & 0.488 & 0.026 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The correctly matched chance levels are $1.1$--$4.2\times$ higher than the
+pooled figure, confirming that pooling across cohorts and tasks understated
+the correct baseline for a structurally constrained retrieval. The effect
+size nonetheless survives this correction by a wide margin in every
+stratum: re-ID@1 remains $12$--$46\times$ its stratum-matched chance
+level, and mAP the least brittle of the three metrics ranges from
+$0.13$ to $0.49$ against chance levels of $0.008$--$0.031$. Identity is
+therefore substantially re-identifiable within every cohort and task
+individually, not only in the pooled figure.
+
+\subsection{Ruling out a rendering/colour confound}
+\label{sec:rendering-invariance}
+Table~\ref{tab:probe-raw}'s trace-only view keeps each ink pixel's
+original colour and intensity (Algorithm~\ref{alg:mask}, line 11): HandPD
+ink is blue-tinted on bluish paper (Figure~\ref{fig:maskpanel}), Kaggle ink
+is neutral grey on white. Perfect cohort decodability on that view is
+therefore ambiguous by construction it could reflect an acquisition or
+motor-style fingerprint on the stroke, or simply that the two cohorts'
+pens are different colours, and colour alone is trivial for an
+ImageNet-pretrained feature extractor to separate. We resolve this by
+re-running the identity/cohort probe on two further renderings of
+increasing invariance: \textbf{gray} (grayscale plus per-image contrast
+normalisation, removing colour and global brightness) and
+\textbf{uniform} (the ink mask skeletonised and re-dilated to a fixed
+5\,px width, removing colour, brightness, and stroke width/pressure only the drawn path's geometry survives). We also report cohort
+ROC-AUC of the logistic regression's decision function alongside balanced
+accuracy, since a metric saturated at $1.000$ in every condition cannot by
+itself demonstrate that a manipulation changed anything.
+
+\begin{table}[H]
+\centering
+\caption{Rendering-invariance ladder, raw images (940 drawings, 120
+subjects). color is nominally the same trace-only view as
+Table~\ref{tab:probe-raw} but is computed by a separate script
+(\texttt{rendering\_invariance\_probe.py}) that, unlike
+\texttt{leak\_decomposition\_probe.py} behind Table~\ref{tab:probe-raw},
+applies resolution standardisation before masking. this is why its re-ID@1
+($0.263$) differs slightly from Table~\ref{tab:probe-raw}'s trace-only
+value ($0.269$) rather than matching it exactly a $0.006$ discrepancy
+from a methodological difference between scripts, not a new measurement
+of a different quantity, and well within this study's declared
+($<0.05$) noise floor (Section~\ref{sec:probe}). gray =
+grayscale, contrast-normalised. uniform =
+skeletonised, fixed-width stroke (geometry only).}
+\label{tab:rendering}
+\begin{tabular}{lccc}
+\toprule
+View & Subject re-ID@1 & Cohort AUC & Cohort BalAcc \\
+\midrule
+color   & 0.263 & 1.000 & 1.000 \\
+gray    & 0.248 & 1.000 & 1.000 \\
+uniform & 0.221 & 1.000 & 0.997 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The result is decisive, and in the opposite direction from the colour-only
+explanation: cohort decodability does not collapse under uniform ROC-AUC remains at $1.000$ and balanced accuracy falls only from $1.000$
+to $0.997$, even though uniform contains no colour, no
+intensity, and no stroke-width information whatsoever, only the traced
+path itself. A rendering/colour confound predicts collapse toward chance
+under \textit{uniform}; instead the cohort signal survives essentially
+intact. We conclude the acquisition-level marker identified in
+Table~\ref{tab:probe-raw} is substantially geometric (e.g.\ characteristic
+spiral proportions, digitisation/registration conventions, or stroke-path
+jitter patterns specific to each acquisition pipeline), not a pixel-colour
+artefact, which is the premise the rest of this study's ``trace-intrinsic''
+argument depends on. Subject re-identification is more graded: it falls
+from $0.263$ to $0.221$ across the ladder, indicating that some
+identity-relevant signal is colour/rendering-related, but a large residual
+(30$\times$ chance) survives into the pure-geometry view as well, so
+identity too is not primarily a colour artefact. Because cohort AUC itself
+saturates at $1.000$ even under the strictest rendering control, a fully
+graded comparison across conditions would additionally benefit from a
+continuous separability measure such as log-loss or decision-margin
+distributions; we did not compute these here and flag it in
+Section~\ref{sec:limitations} as a remaining refinement, though the
+balanced-accuracy and AUC evidence already available is sufficient to
+reject the colour-confound explanation.
+
+\subsection{Suppression works as intended, but the residual signal is trace-intrinsic}
+
+\begin{table}[H]
+\centering
+\caption{Identity and cohort probe after background/template suppression
+(940 drawings, 120 subjects matching Table~\ref{tab:probe-raw} exactly;
+see Section~\ref{sec:limitations} on an earlier file-count discrepancy that
+this corrected run resolves).}
+\label{tab:probe-supp}
+\begin{tabular}{lcc}
+\toprule
+Mode & Subject re-ID@1 & Cohort balanced accuracy \\
+\midrule
+Full        & 0.236 & 0.974 \\
+Background  & 0.005 & 0.500 \\
+Trace       & 0.236 & 0.974 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Suppression collapses both background-mode subject re-identification and
+background-mode cohort decodability to chance (0.005 and 0.500
+respectively), confirming the intervention removed exactly the signal it
+targeted. Full-image and trace-only values are now identical (0.236),
+meaning all remaining identity signal, after suppression, is trace-borne.
+Cohort decodability through the trace channel remains high (0.974), and
+Section~\ref{sec:rendering-invariance2} shows this is not a rendering
+artefact: re-running the rendering-invariance ladder on these suppressed
+images gives cohort ROC-AUC $1.000\to1.000\to1.000$ across
+color/gray/uniform renderings an acquisition fingerprint, consistent
+with device, pen, or scan-rendering differences between cohorts, survives
+suppression because it is imprinted on the stroke's geometry itself, not
+only on the surrounding paper or template, and not on pixel colour.
+
+\subsection{Confirming the geometric result on suppressed images}
+\label{sec:rendering-invariance2}
+We repeated the rendering-invariance ladder (Section~\ref{sec:rendering-invariance})
+on the suppressed images themselves, to check that the trace-channel
+cohort signal in Table~\ref{tab:probe-supp} is not itself a residual
+rendering artefact of the suppression pipeline. We note, correcting an
+earlier draft of this manuscript, that suppression does \emph{not} retain
+the original ink colour at masked pixels: \texttt{mech2\_suppression.py}
+renders every retained ink pixel as pure black on white regardless of its
+source colour, which is also why the \textit{color} and \textit{gray}
+rows of Table~\ref{tab:rendering-supp} below are numerically identical --
+there is no colour information left in these images for the two renderings
+to differ on. This is itself a useful internal check rather than a defect:
+any residual cohort or identity signal recovered from the ``color'' row of
+suppressed images is, by construction, purely a geometry/intensity effect,
+not a true colour effect.
+
+\begin{table}[H]
+\centering
+\caption{Rendering-invariance ladder, suppressed images (940 drawings, 120
+subjects).}
+\label{tab:rendering-supp}
+\begin{tabular}{lccc}
+\toprule
+View & Subject re-ID@1 & Cohort AUC & Cohort BalAcc \\
+\midrule
+color   & 0.236 & 1.000 & 0.999 \\
+gray    & 0.236 & 1.000 & 0.999 \\
+uniform & 0.221 & 1.000 & 0.997 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{rendering_ladder_fig.png}
+\caption{Rendering-invariance ladder, raw (Table~\ref{tab:rendering}) vs.\
+suppressed (Table~\ref{tab:rendering-supp}) images. Cohort ROC-AUC (blue)
+stays pinned at $1.000$ across color$\to$gray$\to$uniform in both panels
+the signature a colour/rendering confound would not produce while
+subject re-ID@1 (orange) declines only gradually, confirming a large
+geometric residual survives even the strictest rendering control.}
+\label{fig:rendering-ladder}
+\end{figure}
+
+The pattern is the same as on raw images (Table~\ref{tab:rendering}) and,
+if anything, cleaner: cohort ROC-AUC does not move at all across the
+ladder, and balanced accuracy falls only from $0.999$ to $0.997$ under the
+fully geometry-only rendering. Combined with Table~\ref{tab:probe-supp},
+this rules out both a background/template confound (already shown by
+suppression itself) and a colour/rendering confound (shown here) as
+explanations for the cross-cohort signal that survives in the trace. What
+remains is the drawn path's geometry.
+
+\subsection{Suppression does not move the honest-protocol AUC}
+\label{sec:results-causal}
+
+\begin{table}[H]
+\centering
+\caption{Paired subject-level bootstrap comparison, raw vs.\ suppressed
+images, EfficientNet-B0. All three rows are independently verified under
+explicit, logged settings (four matched seeds: 999, 1001--1003; $k{=}10$,
+40 epochs, Section~\ref{sec:training}), replacing the earlier five-seed
+(seeds 1--5) results from this study's original harness invocation
+(Section~\ref{sec:limitations}).}
+\label{tab:causal}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccc}
+\toprule
+Comparison & Raw AUC & Suppressed AUC & Paired $\Delta$AUC (95\% CI) \\
+\midrule
+Cross-cohort HandPD$\rightarrow$Kaggle (verified) & 0.703 & 0.662 &
+  $-0.040$ ($-0.339$ to $+0.221$) \\
+Cross-cohort Kaggle$\rightarrow$HandPD (verified) & 0.647 & 0.664 &
+  $+0.017$ ($-0.404$ to $+0.309$) \\
+Within-cohort, HandPD spiral (verified) & 0.944 & 0.898 &
+  $-0.045$ ($-0.134$ to $+0.029$) \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+All three confidence intervals include zero ($P(\Delta\text{AUC}>0)=0.396$,
+$0.723$, and $0.121$ respectively), so none reaches the pre-specified
+threshold for a supported improvement. Applying the approximate
+minimum-detectable-effect calculation of Section~\ref{sec:power} to these
+now-verified confidence intervals, this
+design could reliably detect ($80\%$ power, two-sided
+$\alpha{=}0.05$) an effect of roughly $\mathrm{MDE}\approx0.40$ AUC
+(HandPD$\to$Kaggle), $0.51$ AUC (Kaggle$\to$HandPD), and $0.12$ AUC
+(within-cohort) both cross-cohort MDEs widened relative to the original,
+under-specified run's own CIs (previously $\approx0.36$ and $\approx0.37$),
+confirming both directions are less powered than originally reported, not
+more. \textbf{A null result at this power supports only ``we did
+not detect an improvement of this size or larger''}; it does not support
+``suppression does not help'' as a general claim, and we revise our
+language accordingly for the rest of this section and the abstract. The
+three comparisons are not
+equally informative, however. Both cross-cohort directions give wide
+intervals roughly symmetric around a near-zero point estimate ($-0.040$ and
+$+0.017$) consistent with a genuinely underpowered null in either
+direction, given only 28 Kaggle subjects total. Both cross-cohort rows are
+now independently verified on four matched seeds. each moved only modestly
+from its original five-seed estimate ($-0.009\to-0.040$ for
+HandPD$\to$Kaggle, $+0.022\to+0.017$ for Kaggle$\to$HandPD), well within
+the width of either interval, and the Kaggle$\to$HandPD interval widened
+further under verification ($\pm0.130\to\pm0.191$ on the suppressed side
+alone), underscoring how underpowered this direction is at only 28 test
+or training subjects. The within-cohort row, now
+independently verified on four matched seeds under explicit, logged
+settings, gives a narrower interval centred modestly negative but clearly
+spanning zero ($P(\Delta\text{AUC}>0)=0.121$, a one-sided bootstrap resample
+proportion, not a posterior probability no prior is specified); this
+softens the original five-seed result's borderline signal
+($P(\Delta\text{AUC}>0)=0.054$) into an unambiguous Fork-B null. We do not
+treat this as evidence that suppression cost genuine signal: the interval
+includes zero, and the point estimate itself is small. We report it as a
+supported null rather than an unresolved possibility now that the matched
+raw/suppressed pair for these seeds is independently verified.
+Section~\ref{sec:power} quantifies the minimum effect this design could
+have detected.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\linewidth]{auc_forest.png}
+\caption{Paired $\Delta$AUC (suppressed $-$ raw), EfficientNet-B0 only,
+subject-level bootstrap 95\% CI. All three rows use four independently
+verified matched seeds (999, 1001--1003). All three intervals include
+zero; both cross-cohort directions are wide and centred near zero
+(underpowered null in either direction, given only 28 Kaggle subjects
+total), the within-cohort interval is narrower and modestly negative but
+clearly spans zero ($P(\Delta\text{AUC}>0)=0.121$).}
+\label{fig:forest}
+\end{figure}
+
+\subsection{Ruling out resolution and aspect-ratio artefacts}
+\label{sec:resolution-artefact}
+Because unequal native resolution between cohorts can itself masquerade as
+a cohort marker, we verified directly that both cohorts were held at the
+same 512\,px target height throughout suppression (HandPD images
+$\approx$520--555$\times$512\,px, aspect ratio $\approx0.99$--$1.08$.
+Kaggle images exactly 512$\times$512\,px, aspect ratio exactly $1.0$). This
+residual aspect-ratio difference is itself a further, cohort-correlated
+geometric variable worth controlling every image is subsequently resized
+to a forced $224\times224$ square for the classifier and probe backbone
+(Section~\ref{sec:probe}), which stretches HandPD images by a small,
+cohort-specific horizontal factor that Kaggle images never experience,
+since Kaggle is already exactly square. To test whether this stretch, not
+genuine stroke geometry, explains the geometry-only cohort signal
+(Table~\ref{tab:rendering}), we re-ran the \textit{uniform} condition with
+images padded to a square canvas (preserving aspect ratio) before the
+$224\times224$ resize, instead of stretched directly. Cohort AUC was
+unchanged ($1.000$ under both stretch and pad-to-square) and balanced
+accuracy was, if anything, marginally higher under the aspect-preserving
+control ($0.9975$ vs.\ $0.9969$) the opposite of what a stretch
+artefact would predict. Neither the resolution-matching step nor the
+downstream forced-square resize explains the trace-channel cohort signal
+reported above.
+
+\subsection{A genuinely clean pen-only split on HandPD, and a corrected colour assignment}
+\label{sec:handpd-clean}
+Section~\ref{sec:masking} already discloses that HandPD's trace-only view
+is not a clean separation the intensity-only Sauvola mask
+(Algorithm~\ref{alg:mask}) keeps both the printed guide and the pen stroke
+as ``ink,'' and the two are different colours. An external review of this
+manuscript identified that our colour assignment for which colour
+is which was backwards throughout this study's internal code and text
+(including an earlier draft of this section, which described the guide as
+blue and the pen as dark/neutral). We verified the correct assignment
+directly rather than taking either the original assumption or the
+reviewer's inference on faith overlaying the high and low-blue-dominance
+masks across eight different HandPD subjects' raw images (after
+resolution standardisation) shows the low-blue-dominance (dark) mask
+overlays into a crisp, near-identical spiral across different people's
+sheets (cross-subject mean IoU $0.225$), exactly what a single printed
+template produces, while the high-blue-dominance (blue) mask overlays into
+a thick, diffuse band (IoU $0.104$), consistent with hand-drawn variation.
+Direct visual inspection of raw images confirms this unambiguously: the
+\textbf{black/dark spiral is the printed guide} (thin, smooth,
+geometrically regular) and the \textbf{blue spiral is the patient's actual
+pen stroke} (thick, jagged, tremulous). We correct this throughout the
+manuscript and the released code (\texttt{handpd\_clean\_split.py}), and
+disclose the error explicitly rather than silently revising affected
+numbers.
+
+Using the corrected rule (keep high-blue-dominance pixels within the ink
+mask the pen; drop low-blue-dominance pixels the guide), $47.0\%$ of
+the pixels the intensity-only mask had labelled ``ink'' are guide, not pen
+($11.0\%$ of the image on average, down to $5.8\%$ pen-only) essentially
+the same proportion reported before the colour-direction fix, since that
+number depends only on the blue-dominance threshold splitting the mask
+into two groups, not on which group we call ``pen.'' What changes
+substantively is which number is the real pen-only re-identification
+result. Re-running subject re-identification on HandPD alone under the
+\emph{corrected} pen-only view gives re-ID@1 $=0.236$ (chance $0.0095$),
+compared with $0.261$ on the original guide-contaminated trace (both
+measured on the same 736 HandPD drawings). The earlier, backwards
+computation (re-ID@1 $=0.072$) was in fact isolating the \emph{guide},
+and its near-chance-adjacent value is exactly what we would expect from a
+machine-printed template that carries little genuine subject signal
+a useful sanity check on the correction, not a contradiction of it. With
+the correction applied, HandPD's trace-intrinsic identity signal is
+not substantially reduced by removing the guide ($0.261\to0.236$,
+retaining $90\%$ of the original re-ID rate) the signal was predominantly
+genuine, pen-driven, and the previous ``partially confirmed, overstated''
+characterisation is itself corrected the trace-intrinsic claim is
+better supported than the original (uncorrected) analysis suggested, not
+worse.
+
+This correction also directly answers the sharper concern it raises: if
+HandPD's ink mask contains two overlaid spirals (guide and pen) while
+Kaggle's contains only one (Kaggle has no printed guide at all), could the
+perfect cohort decodability under geometry-only rendering
+(Table~\ref{tab:rendering}) be trivially explained by ``two spirals
+present vs.\ one,'' with nothing to do with any genuine acquisition
+fingerprint in the stroke? We re-ran the full rendering-invariance ladder
+(Section~\ref{sec:rendering-invariance}) with HandPD's guide correctly
+excluded (Kaggle unchanged, since it has no guide to remove) and report
+the result as Table~\ref{tab:rendering-penonly}.
+
+\begin{table}[H]
+\centering
+\caption{Rendering-invariance ladder, HandPD guide correctly excluded
+(raw images, 92 HandPD subjects pen-only + all Kaggle subjects, 2026-10
+re-run following external review). Cohort AUC remains at $1.000$ across
+every rendering, directly refuting the two-spirals-vs-one-spiral
+explanation for cohort decodability.}
+\label{tab:rendering-penonly}
+\begin{tabular}{lccc}
+\toprule
+View & Subject re-ID@1 & Cohort AUC & Cohort BalAcc \\
+\midrule
+color   & 0.244 & 1.000 & 1.000 \\
+gray    & 0.251 & 1.000 & 0.990 \\
+uniform & 0.202 & 1.000 & 0.981 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Cohort ROC-AUC stays perfectly at $1.000$ under every rendering, including
+\textit{uniform} (pure stroke geometry, guide excluded) the same
+decisive pattern as the original, guide-contaminated ladder
+(Table~\ref{tab:rendering}). If the two-spirals confound explained the
+original result, removing one of the two spirals should have moved cohort
+AUC toward chance; it did not move at all. We repeated this on the
+suppressed images (constructing the ``suppressed, pen-only'' view directly
+from the raw pen-only mask via the same black-on-white rendering
+convention as Section~\ref{sec:suppression}'s pipeline, because we also
+discovered that the existing suppressed images retain no colour
+information at all see the correction below) color/gray/uniform give
+cohort AUC $1.000$/$1.000$/$1.000$ and re-ID@1 $0.239$/$0.239$/$0.202$,
+again matching the original pattern closely. We conclude the guide-overlap
+confound this correction set out to test does not explain this study's
+central cohort-decodability finding; the signal survives being properly
+isolated to the pen alone.
+
+\textbf{A second, independent correction.} While constructing the
+suppressed-image pen-only view above, we found that the suppressed images
+in \texttt{Datasets\_2a/} contain only pure black (0,0,0) and pure white
+(255,255,255) pixels no intermediate colour or intensity survives
+suppression at all. This contradicts an earlier claim elsewhere in this
+manuscript (Section~\ref{sec:rendering-invariance2}) that the suppression
+pipeline ``retain[s] the original ink colour at masked pixels.'' It does
+not; \texttt{mech2\_suppression.render()} renders every ink pixel as pure
+black regardless of its original colour. We correct that claim at its
+source (Section~\ref{sec:rendering-invariance2}) and disclose it here
+rather than silently revising it.
+
+\subsection{Background-only disease decodability, and whether suppression narrows the identity-leakage gap}
+\label{sec:background-disease}
+Section~\ref{sec:cohort-marker} establishes that background (template and paper)
+is a near-perfect cohort marker. This leaves open a sharper,
+within-cohort question that a reviewer of this manuscript raised directly
+is the background also predictive of disease status within a single
+cohort, where it cannot simply be riding on the already-perfect
+cohort signal? If background carries no disease information, the honest
+finding that suppression does not move honest-protocol AUC
+(Section~\ref{sec:results-causal}) is close to guaranteed by construction
+and not very informative. If background does carry disease
+information, the same null becomes a stronger result: it shows that
+suppressing a genuinely disease-predictive channel still does not move the
+honest classifier's accuracy, because the classifier was not relying on
+that channel in the first place.
+
+We ran a frozen-feature probe for within-cohort disease decodability
+(PD vs.\ healthy control) under \textit{full}, \textit{background-only},
+and \textit{trace-only} views, separately for each cohort (pooling cohorts
+would reintroduce the cohort confound) and separately for raw and
+suppressed images (Table~\ref{tab:background-disease}).
+
+\begin{table}[H]
+\centering
+\caption{Within-cohort disease (PD vs.\ HC) decodability by masking mode,
+raw vs.\ suppressed images (frozen EfficientNet-B0 features, GroupKFold
+logistic regression probe).}
+\label{tab:background-disease}
+\begin{tabular}{llccc}
+\toprule
+Cohort & Condition & Full AUC & Background AUC & Trace AUC \\
+\midrule
+HandPD & raw        & 0.926 & 0.921 & 0.893 \\
+HandPD & suppressed & 0.894 & 0.461 & 0.894 \\
+Kaggle & raw        & 0.891 & 0.923 & 0.875 \\
+Kaggle & suppressed & 0.875 & 0.253 & 0.875 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On raw images, background-only disease decodability is high in both
+cohorts (AUC $0.921$ HandPD, $0.923$ Kaggle) essentially as high as the
+full image directly refuting the possibility that background is only a
+cohort shortcut with no disease information. Background is, on these raw
+images, itself a near-full disease marker, almost certainly via
+PD-associated differences in paper handling, scanning, or acquisition
+protocol rather than anything about the stroke. Suppression collapses this
+to chance or below in both cohorts ($0.461$ HandPD, $0.253$ Kaggle
+the Kaggle value is likely small-sample noise given $n=102$, but is, if
+anything, evidence the channel is fully removed rather than only
+weakened), confirming the intervention worked exactly as intended on a
+real and substantial disease-predictive confound, not only on a synthetic
+marker (Section~\ref{sec:positive-control}) or on cohort identity
+(Section~\ref{sec:cohort-marker}). Trace-only AUC is essentially unchanged by
+suppression within each cohort ($0.893\to0.894$ HandPD, $0.875\to0.875$
+Kaggle), consistent with trace and background being probed independently.
+That the honest-protocol AUC still does not move after suppressing a
+background channel this strongly disease-predictive
+(Section~\ref{sec:results-causal}) is therefore a materially stronger
+null result than if background had carried little disease signal to begin
+with the classifier was leaving a genuinely informative channel on the
+table, not merely one that happened to carry no signal.
+
+We also address a related question raised about this study's title claim:
+does suppression narrow the gap between image-level (P1, no grouping) and
+subject-grouped (P2) honest-protocol AUC the identity-leakage gap the
+paper is centrally about? Table~\ref{tab:probe-raw}'s companion causal runs
+already contain both P1 and P2 rows for the suppressed condition; no new
+training was required to extract them. Raw images give P1 $=0.991\pm0.006$
+and P2 $=0.944\pm0.005$ (gap $0.047$); suppressed images give P1
+$=0.961\pm0.021$ and P2 $=0.898\pm0.019$ (gap $0.063$, four seeds).
+Suppression does not narrow the P1-P2 gap; if anything it is nominally
+larger, though the two gaps are not statistically distinguishable at this
+sample size. This is consistent with the rest of this study's results the
+identity-leakage gap and the background/template channel are not the same
+mechanism, and removing the latter does not resolve the former.
+
+\subsection{Calibration collapses under cross-cohort shift}
+\label{sec:calibration}
+AUC measures ranking quality, not whether predicted probabilities are
+trustworthy a clinical screening tool needs both. We report the Brier
+score and expected calibration error (ECE, 10 equal-width bins) for
+EfficientNet-B0's subject-level predicted probabilities under P1, P2, and
+both cross-cohort directions (mean $\pm$ SD over five seeds), reusing the
+predictions already generated for Table~\ref{tab:baseline}. The P1/P2 rows
+therefore carry the same provenance caveat as Table~\ref{tab:baseline}'s
+original (pre-correction) predictions (Section~\ref{sec:limitations}) we
+report them as an illustrative comparison of within-cohort versus
+cross-cohort calibration, not as a precision claim on the exact values.
+
+\begin{table}[H]
+\centering
+\caption{Calibration, EfficientNet-B0, HandPD spiral (five seeds). Lower
+is better for both metrics.}
+\label{tab:calibration}
+\begin{tabular}{lcc}
+\toprule
+Regime & Brier score & ECE \\
+\midrule
+P1 (image-level)        & $0.090\pm0.003$ & $0.141\pm0.012$ \\
+P2 (subject-grouped)    & $0.100\pm0.009$ & $0.106\pm0.015$ \\
+Cross-cohort HandPD$\to$Kaggle & $0.275\pm0.017$ & $0.239\pm0.014$ \\
+Cross-cohort Kaggle$\to$HandPD & $0.257\pm0.029$ & $0.330\pm0.037$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\linewidth]{calibration_fig.png}
+\caption{Brier score and ECE from Table~\ref{tab:calibration} (mean $\pm$
+SD). Both metrics roughly double to triple moving from within-cohort
+(P1/P2) to cross-cohort evaluation, visualising that domain shift degrades
+not just discrimination but the trustworthiness of the predicted
+probabilities themselves.}
+\label{fig:calibration}
+\end{figure}
+
+Both metrics are similar under P1 and P2 honest subject-grouped
+splitting costs some discrimination (Table~\ref{tab:baseline}) but does
+not by itself substantially degrade calibration and then roughly
+double to triple under cross-cohort transfer in both directions. This
+matches this study's motivation for evaluating cross-cohort transfer at
+all (Section~\ref{sec:baseline}) the dominant failure mode under domain shift
+is not merely lower discrimination but the predicted probabilities
+becoming actively unreliable, which matters directly for any clinical
+operating point set on one cohort and deployed on another. We do not
+recalibrate (e.g.\ Platt scaling or temperature scaling on a held-out
+cross-cohort sample) here doing so, and reporting sensitivity/specificity
+at a clinically motivated operating point per cohort, is a natural
+extension we leave to future work.
+
+\subsection{Generalisation across drawing tasks}
+\label{sec:othertasks}
+The causal comparison above uses the spiral task because it is the only
+task name shared by both cohorts (HandPD provides spiral and meander,
+Kaggle provides spiral and wave), so it is the only task on which
+cross-cohort external validation is structurally possible. Within-cohort
+comparisons are not subject to that constraint, and we repeated the
+identical baseline-replication and suppression pipeline (same backbone,
+same training configuration, Section~\ref{sec:training}) on HandPD's
+other task (meander) and Kaggle's other task (wave). Table~\ref{tab:othertasks}
+shows the same qualitative pattern holds: image-level splitting inflates
+apparent AUC over subject-grouped splitting on both tasks, and background
+suppression again produces a paired $\Delta$AUC whose CI includes zero.
+This is not a new mechanism finding it is the spiral-task result
+replicated on two further tasks but it addresses whether Table~\ref{tab:causal}'s
+conclusion is specific to spiral drawings, and the answer is no. As with
+Table~\ref{tab:calibration}, these five-seed numbers carry the same
+provenance caveat as Table~\ref{tab:baseline}'s original, pre-correction
+predictions (Section~\ref{sec:limitations}) they were generated by the
+original harness invocation, not independently re-verified under the
+explicit, logged four-seed protocol used for the HandPD spiral task and
+both cross-cohort directions. We report them as an illustrative
+replication of the qualitative pattern on two further tasks, not as a
+precision claim on the exact values, and flag independent re-verification
+of this table as a natural, lower-priority follow-up alongside the
+VGG-16/ResNet-50 cross-cohort cells (Section~\ref{sec:limitations}).
+
+\begin{table}[H]
+\centering
+\caption{Within-cohort generalisation to HandPD meander and Kaggle wave,
+EfficientNet-B0 (five seeds).}
+\label{tab:othertasks}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccc}
+\toprule
+Task & AUC (P1) & AUC (P2) & Suppression $\Delta$AUC (95\% CI) \\
+\midrule
+HandPD meander & $0.929\pm0.013$ & $0.911\pm0.022$ & $-0.053$ ($-0.167$ to $+0.051$) \\
+Kaggle wave     & $0.753\pm0.022$ & $0.627\pm0.056$ & $+0.013$ ($-0.211$ to $+0.267$) \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Note also that the frozen-feature identity/cohort probe
+(Section~\ref{sec:probe}, Tables~\ref{tab:probe-raw}-\ref{tab:probe-supp})
+already pools every available task per cohort by construction ink-mask
+extraction (Algorithm~\ref{alg:mask}) does not depend on which task a
+drawing belongs to so those two tables already reflect spiral and
+meander together for HandPD (736 drawings $=$ 368+368) and spiral and wave
+together for Kaggle (204 drawings $=$ 102+102), not spiral alone.
+
+\subsection{Worked example: one prediction under each masking mode}
+\label{sec:worked}
+Tables~\ref{tab:probe-raw}-\ref{tab:causal} report aggregate statistics
+to make the underlying phenomenon concrete, we trained one full classifier
+(EfficientNet-B0, HandPD spiral, subject-grouped split released as a
+runnable demonstration, see Data and code availability) and applied it to
+a single held-out drawing from a PD subject under all three masking
+modes, using exactly the preprocessing described in
+Section~\ref{sec:masking}. \textbf{This checkpoint is a single fold from a
+single split (fixed seed), not the multi-seed mean reported in
+Table~\ref{tab:baseline}}, and its held-out image-level AUC of $0.996$ on
+that one fold's 76-image validation set is accordingly not directly
+comparable to though, following this study's own baseline correction
+(Section~\ref{sec:baseline}), now much closer to Table~\ref{tab:baseline}'s
+$0.944\pm0.005$ four-seed mean it is shown to illustrate the masking-mode
+behaviour of one representative trained model, not as an additional
+performance claim.
+Figure~\ref{fig:worked} shows the
+result under the full image and the trace-only view, the model predicts
+PD with high confidence ($P(\mathrm{PD})=0.996$ and $0.988$
+respectively) under the background-only view with the drawn stroke
+itself removed the prediction collapses to near chance
+($P(\mathrm{PD})=0.487$) and flips to the wrong class. This is a single
+illustrative case, not a statistical claim, but it makes Table~\ref{tab:probe-raw}'s
+aggregate finding tangible this model's PD-relevant evidence for this
+drawing was not carried by the background.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{worked_example.png}
+\caption{One HandPD spiral from a PD subject, classified under each
+masking mode by the trained demonstration checkpoint (a single fold, held-out
+image-level AUC $0.996$ on that fold not the Table~\ref{tab:baseline}
+four-seed mean). The prediction survives background removal (trace-only,
+$P(\mathrm{PD})=0.988$) but collapses toward chance and flips to healthy
+control when only the background is shown ($P(\mathrm{PD})=0.487$),
+concretely illustrating the aggregate pattern in
+Table~\ref{tab:probe-raw}-\ref{tab:probe-supp}.}
+\label{fig:worked}
+\end{figure}
+
+% ======================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+Taken together, these results answer the localisation question our own
+baseline replication (Section~\ref{sec:baseline}) leaves open, and the
+answer is not the convenient one. The
+background does carry a strong, disease-irrelevant acquisition marker
+(Table~\ref{tab:probe-raw}), which is exactly the kind of leak a
+preprocessing step ought to be able to remove and our suppression
+pipeline demonstrably does remove it (Table~\ref{tab:probe-supp}). But
+removing it does not recover the honest generalisation gap
+(Table~\ref{tab:causal}), because the same acquisition information, along
+with subject identity, is also encoded in the trace itself. A model does
+not need the paper or the template to tell HandPD and Kaggle drawings
+apart, or to tell two different people's drawings apart it can do both
+from the stroke alone. If anything, the within-cohort comparison leans
+mildly negative rather than perfectly null (Table~\ref{tab:causal}),
+suggesting suppression can cost a small amount of genuine signal alongside
+the leak it removes a
+caution against treating background masking as a free intervention even
+when it is not the answer to the generalisation gap.
+
+This has a direct methodological implication for the field masking-based
+or background-normalisation-based de-leaking strategies should not be
+assumed to work without the kind of paired, mechanism-verified test applied
+here. A positive AUC shift after such an intervention is not sufficient
+evidence that leakage was removed, and as importantly a null AUC
+shift, on its own, is not sufficient evidence that the intervention failed
+to work as a manipulation. Distinguishing those two failure modes requires
+the same signal-localisation probe used here, applied both before and
+after the intervention, not only a before/after accuracy comparison.
+
+We deliberately report this as a negative result rather than omitting it
+or reframing the study post hoc. The literature on data leakage in medical
+imaging has repeatedly found that a large share of headline accuracy is an
+artefact of evaluation design rather than of learned disease signal
+\cite{tampu2022} this study adds a specific, falsifiable finding to that
+picture for handwriting-based PD screening, at least one plausible and
+mechanistically verified remediation background/template suppression
+is not the answer, and the reason is now localised rather than speculative.
+
+\subsection{Implications for future mechanisms}
+\label{sec:future}
+Because the residual signal is trace-intrinsic, the productive next step is
+not further background engineering but methods that either (i) make the
+trained representation invariant to the acquisition-specific component of
+the trace while preserving the disease-relevant component (e.g.\
+domain-adversarial \cite{ganin2015} or correlation-alignment
+\cite{sun2016coral} training between cohorts), or
+(ii) supply information the static trace image does not fully capture,
+such as raw dynamic pen signal (pressure, velocity, in-air time), which may
+separate motor-disease signal from rendering-fingerprint signal more
+cleanly than a static image can. We treat (ii) as motivated future work
+rather than a result of the present study, but we did run a small pilot of
+one instance of
+(i) Deep CORAL \cite{sun2016coral}, which adds a differentiable
+penalty aligning source/target feature covariance during training, reusing
+this study's exact backbone and cross-cohort harness so the comparison is
+apples-to-apples with Table~\ref{tab:baseline}'s plain baseline and
+Table~\ref{tab:causal}'s suppression result (HandPD$\to$Kaggle, same four
+verified seeds, EfficientNet-B0). CORAL AUC $=0.622\pm0.049$, \emph{below}
+both the plain baseline ($0.703\pm0.049$) and the suppressed-image result
+($0.662\pm0.074$) for this direction (Figure~\ref{fig:interventions}),
+though all three estimates' wide,
+overlapping uncertainty (Section~\ref{sec:power}) means we do not read this
+as CORAL actively hurting generalisation, only as failing to demonstrate
+the improvement the domain-invariance hypothesis would predict, on this
+one direction, at this one hyperparameter setting (default CORAL weight,
+no sweep). We report this explicitly as a \emph{pilot}, not a full
+experiment it is a single, unreplicated data point we did not run the
+Kaggle$\to$HandPD direction, additional seeds, or a weight sweep, and a
+proper evaluation of domain-alignment methods for this problem is a
+substantial undertaking in its own right that we leave to dedicated future
+work. Gulrajani and Lopez-Paz's large-scale audit of domain-generalisation
+algorithms is a direct motivation for treating this single run as a pilot
+rather than a conclusive test under their controlled \texttt{DomainBed}
+comparison, no domain-generalisation algorithm they evaluated (including
+correlation-alignment and domain-adversarial methods) reliably outperforms
+plain empirical risk minimisation by more than about one point once model
+selection is held fixed across methods, which means a single-seed,
+single-hyperparameter CORAL run of the kind we report here is exactly the
+sort of result their audit warns is too noisy to interpret as a genuine
+algorithmic effect one way or the other \cite{gulrajani2021}. Within that limited scope, the pilot is at minimum consistent with
+the rest of this study's pattern none of the interventions tested so far
+(preprocessing-based suppression or a single representation-alignment
+pilot) close the honest-protocol gap on this data.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\linewidth]{intervention_comparison_fig.png}
+\caption{All interventions tested for HandPD$\to$Kaggle cross-cohort
+transfer, EfficientNet-B0, four verified seeds (mean $\pm$ SD). Neither
+background suppression nor the Deep CORAL pilot (a single unreplicated
+run, not a full experiment) improves on the plain baseline for
+this direction.}
+\label{fig:interventions}
+\end{figure}
+
+\subsection{Recommendations for evaluating proposed de-leaking interventions}
+Generalising from what this study needed in order to distinguish a genuine
+null (Fork B: the intervention worked but did not help) from a failed
+manipulation (Fork C: the intervention did not do what it was supposed to),
+we suggest the following minimum protocol for any future work proposing a
+preprocessing-based fix for identity or acquisition leakage in medical
+image classification:
+\begin{enumerate}[leftmargin=1.4em,itemsep=2pt]
+  \item \textbf{Localise before you build.} Run a cheap, frozen-feature
+        signal-localisation probe (identity re-identification and any
+        known confound's decodability, under the masking modes relevant to
+        the proposed intervention) before building the intervention,
+        to establish whether it has a priori headroom.
+  \item \textbf{Verify the manipulation, not just the outcome.} Re-run the
+        same probe on the intervened data. A null outcome without a
+        confirmed drop in the targeted signal is uninterpretable a
+        positive outcome without a confirmed drop in the targeted signal
+        may be a different, unidentified leak (Fork C).
+  \item \textbf{Report the causal statistic with paired, subject-level
+        uncertainty}, not independent point estimates for baseline and
+        treatment, and evaluate in both the within-cohort and (where
+        possible) cross-cohort external-validation regimes.
+  \item \textbf{Rule out preprocessing artefacts} that could masquerade as
+        the effect of interest (here, unequal resolution standing in for
+        an acquisition marker).
+  \item \textbf{Report negative and mixed results in full}, including
+        directional but non-significant costs, rather than rounding to a
+        clean null or omitting an intervention that did not work.
+\end{enumerate}
+
+\subsection{Limitations}
+\label{sec:limitations}
+First, our probe uses frozen ImageNet features as a proxy for what a
+trained classifier could exploit because these features are not tuned to
+handwriting, trace-intrinsic identity signal measured here is a floor, not
+a ceiling, so the true trace-borne leak may be larger than reported.
+Second, the trace/background split reuses a single first-pass segmentation
+mask on HandPD the printed guide partially overlaps the pen trace, so the
+trace-only view is not a perfectly clean separation, and we treat small
+(\textless0.05) between-mode differences as within the noise floor of the
+method rather than as evidence. Third, both cohorts are small (HandPD 18
+healthy subjects Kaggle 28 subjects total), so single-comparison
+confidence intervals are wide we mitigate this with subject-level
+bootstrap statistics and by testing the effect across two independent
+evaluation regimes (within-cohort and cross-cohort) rather than relying on
+either alone. Fourth, we tested one suppression method (adaptive
+thresholding after illumination flattening) a different background-removal
+technique could in principle behave differently, though the identity-probe
+result (Table~\ref{tab:probe-raw}) suggests any purely background-confined
+intervention would face the same ceiling, since identity is not
+background-confined to begin with. Fifth, the causal comparison
+(Table~\ref{tab:causal}, Figure~\ref{fig:forest})
+is restricted to EfficientNet-B0 we anchor on this backbone because our
+own baseline replication (Table~\ref{tab:baseline}) found the other two
+architectures too high-variance for a
+two-condition paired comparison at this sample size, but this means the
+result should be read as evidence for one stable architecture, not as a
+claim already generalised across backbones. We do test both cross-cohort
+transfer directions (HandPD$\rightarrow$Kaggle and Kaggle$\rightarrow$HandPD),
+and both show the same wide, near-zero pattern. Sixth, cross-cohort
+external validation is necessarily restricted to the spiral task, since it
+is the only task name common to both cohorts we mitigate this by
+replicating the within-cohort causal comparison on HandPD's and Kaggle's
+other tasks (meander and wave respectively, Section~\ref{sec:othertasks}),
+which show the same pattern, but a genuine cross-cohort test on a
+non-spiral task is not possible with these two datasets. Seventh, HandPD
+and Kaggle differ in class prevalence ($80.4\%$ vs.\ $53.6\%$ PD,
+Section~\ref{sec:baseline}) we use AUC as the primary endpoint because it
+is largely prevalence-invariant, but we did not run a prevalence-matched
+subsampling sensitivity analysis to quantify how much of the cross-cohort
+AUC gap, if any, is attributable to the prevalence mismatch itself rather
+than to acquisition/domain shift this would be a natural addition to a
+follow-up study. Relatedly, this study's cohort and trace-decodability
+probes (Sections~\ref{sec:cohort-marker}--\ref{sec:rendering-invariance})
+establish that geometric, trace-intrinsic signal is \emph{sufficient} to
+decode cohort identity they do not, on their own, establish that this
+signal is the cause of the cross-cohort AUC drop. HandPD and Kaggle
+differ not only in acquisition pipeline but in population age, disease
+stage, and drawing instructions, none of which this study measured or
+controlled any of these could independently contribute to the honest
+cross-cohort AUC drop through the classifier's disease-relevant features,
+not only through the trace-intrinsic identity/acquisition fingerprint we
+localise here. We show that background suppression and one domain-alignment
+method do not close the gap, which is evidence against those two specific
+mechanisms, but it is not evidence that the trace-intrinsic signal we
+identify is the gap's sole or even primary cause; a designed study
+(matched age/stage subsamples, or a prospective single-pipeline, multi-site
+cohort) would be needed to adjudicate between these explanations, and we
+report our causal language throughout as pertaining to the tested
+interventions' failure to close the gap, not to a fully identified causal
+mechanism for the gap itself. Eighth, the causal-lane bootstrap (Algorithm~\ref{alg:boot})
+pools resampled deltas across seeds by concatenation, which mixes
+subject-sampling and seed-to-seed variance without separating them a
+nested or hierarchical bootstrap, or a mixed-effects model with seed as a
+random effect, would give a more principled variance decomposition, and we
+did not implement one here. Ninth, and most consequentially during
+revision we discovered that the original evaluation harness run backing
+this study's results had, for at least the HandPD spiral baseline,
+executed with an under-specified fold count (3 folds rather than the
+intended 10) relative to the harness's own documented defaults. Rather
+than leave this an open question, we independently regenerated every
+EfficientNet-B0 cell feeding Tables~\ref{tab:baseline} and~\ref{tab:causal}
+under four freshly verified, matched seeds (999, 1001-1003) and explicit,
+logged configuration ($k{=}10$, 40 epochs): the HandPD spiral within-cohort
+baseline and causal comparison, and both raw and suppressed predictions
+for both cross-cohort directions (HandPD$\to$Kaggle and Kaggle$\to$HandPD).
+Every verified number confirms the same qualitative conclusions as the
+original, under-specified run the within-cohort causal comparison remains
+a Fork-B null with a smaller point estimate and a cleaner verdict
+($P(\Delta\text{AUC}>0)$ moved from a borderline $0.054$ to an unambiguous
+$0.121$); the HandPD$\to$Kaggle direction moved only modestly, both for
+the raw cell ($0.685\to0.703$) and the paired causal comparison
+($-0.009\to-0.040$, still CI-spans-zero) and the Kaggle$\to$HandPD
+direction, the noisiest of the three by far (only 28 Kaggle subjects total
+on either the training or test side depending on direction), moved further
+in absolute point-estimate terms ($0.703\to0.647$ raw,
+$+0.022\to+0.017$ paired) but the verified estimates are consistently
+tighter than the originals (raw SD $0.130\to0.056$ paired CI actually
+widened to $-0.404$ to $+0.309$, if anything a more honest reflection of
+how underpowered this direction is) and remain well within the original
+estimates' own wide uncertainty. No verified correction changed this
+study's qualitative conclusions all three causal comparisons remain
+Fork-B nulls only their precision and provenance. We disclose every
+correction explicitly rather than silently revising the affected numbers.
+The only cells of Table~\ref{tab:baseline} still carried over from the
+original, unverified harness invocation are the VGG-16 and ResNet-50
+cross-cohort cells (both directions) we did not extend the verification to
+these secondary backbones given the one-job-per-day compute budget this
+revision operated under and because the causal comparison in
+Section~\ref{sec:stats} anchors on EfficientNet-B0 alone. Independently
+regenerating these remaining cells would be a natural, lower-priority
+follow-up, well behind the extensions discussed in
+Section~\ref{sec:future}. Tenth, the positive-control marker experiment
+(Section~\ref{sec:positive-control}) surfaced its own honest caveat worth
+flagging on its own terms. Suppression collapsed the injected marker's
+background-level decodability completely (AUC $0.991\to0.461$, i.e.\ to
+chance), yet honest-protocol AUC recovered only part of the marker's
+inflation ($0.994\to0.972$, against a marker-free baseline of $0.944$)
+roughly $44\%$ of the injected effect, not all of it. We do not know
+whether this residual reflects a genuine mismatch between what a
+frozen-feature linear probe and a fine-tuned CNN are each sensitive to, a
+subtle artefact introduced by the suppression reconstruction itself
+distinct from the marker, or simply the five-seed design's own sampling
+noise (we did not run a paired bootstrap CI for this comparison, unlike the
+main causal-lane results, so we cannot rule out that the residual is not
+statistically distinguishable from zero). Whichever explanation is
+correct, this means a clean diagnostic-lane result does not guarantee the
+causal lane's AUC movement will track it one-for-one in magnitude, which
+tempers how much weight the diagnostic lane's clean collapse in the real,
+non-marker suppression result (Table~\ref{tab:probe-supp}) can carry on
+its own toward interpreting the corresponding Fork-B null
+(Table~\ref{tab:causal}); it does not, however, change the sign or
+qualitative interpretation of either result. Eleventh: as documented in
+Section~\ref{sec:training}, the within-cohort P1/P2/LOSO protocols use
+each fold's own held-out test split as the early-stopping validation set,
+with no further inner validation split the reported checkpoint for
+each fold is the epoch with the best AUC on that fold's own test data.
+This is a mild form of model selection on the test set and can inflate
+within-cohort AUC estimates somewhat, since the stopping point (though not
+the training data itself) is chosen with knowledge of test-fold
+performance. The cross-cohort comparisons this study's main causal
+evidence are not affected, since their validation slice is carved from
+the training cohort only. A cleaner design would nest a
+separate inner validation split inside each within-cohort training fold
+we did not implement this for the original baseline harness and disclose
+it here as a limitation on every within-cohort number (P1, P2, LOSO)
+reported in this study rather than silently correcting it, since doing so
+would require retraining every within-cohort cell under a new splitting
+scheme and was out of scope for this revision.
+
+% ======================================================================
+\section{Conclusion}
+Subject identity and cross-cohort acquisition signal in this handwriting
+data are not confined to the image background or template a
+mechanistically verified background/template suppression removes the
+background-specific component of both signals but leaves the honest
+generalisation gap unchanged, because a comparable signal survives in the
+drawn trace itself. This localises, rather than merely restates, the
+leakage problem this study's own baseline replication establishes, and
+rules out preprocessing-only masking as a sufficient fix. A single,
+preliminary test of one domain-invariant training method (Deep CORAL) also
+showed no improvement over the plain baseline, though this was only one
+direction, one hyperparameter setting, and one unreplicated run
+(Section~\ref{sec:future}), so we do not treat it as ruling out that
+family of methods the way our suppression result rules out
+preprocessing-only masking. We recommend that future
+handwriting-based PD screening work pair any proposed de-leaking
+intervention with a direct signal-localisation probe, not only an
+accuracy comparison, and we point future mechanism work toward a more
+thorough evaluation of domain-invariant training (broader hyperparameter
+and direction coverage than we could run here) and multimodal (image +
+dynamic signal) fusion as the next candidates.
+
+% ======================================================================
+\section*{Ethics statement}
+This study performed a secondary analysis of two pre-existing, publicly
+available, de-identified handwriting datasets (HandPD and the Kaggle
+``Parkinson's Drawings'' set) no new human-subject data were collected.
+Both datasets were collected and released by their original authors under
+their own institutional approvals \cite{pereira2015,zham2017}. No additional
+ethical approval was required for this secondary analysis.
+
+\section*{Data and code availability}
+The datasets are publicly available (HandPD from the Botucatu/UNESP dataset
+page \cite{pereira2015}; the Kaggle ``Parkinson's Drawings'' set from Kaggle
+\cite{zham2017}). All code implementing the baseline replication, the
+masking probe, the suppression pipeline, and the paired statistical
+comparison, together with the result data behind every table and figure and
+a step-by-step reproduction guide, is released at
+\url{https://github.com/jesuarockiaraj/localising-subject-identity-and-acquisition-leakage-in-Parkinson-handwriting-classifiers}.
+A runnable demonstration
+(\texttt{train\_demo\_checkpoint.py}, \texttt{demo\_predict.py}) trains one
+EfficientNet-B0 classifier under the honest subject-grouped protocol and
+reports its PD-probability output on full / background-only / trace-only
+versions of a chosen image, so the trace-intrinsic result in
+Table~\ref{tab:probe-supp} can be observed directly on individual
+predictions rather than only in aggregate statistics.
+\texttt{make\_worked\_example.py} reproduces Figure~\ref{fig:worked} from
+the same checkpoint. \texttt{rendering\_invariance\_probe.py} reproduces
+Tables~\ref{tab:rendering}--\ref{tab:rendering-supp}
+(Sections~\ref{sec:rendering-invariance}--\ref{sec:rendering-invariance2}),
+and \texttt{stratified\_reid.py} reproduces Table~\ref{tab:reid-strat} and
+the label-shuffle control of Section~\ref{sec:reid-controls}.
+\texttt{aspect\_ratio\_control.py} reproduces the pad-to-square check in
+Section~\ref{sec:resolution-artefact}, and \texttt{handpd\_clean\_split.py}
+reproduces the colour-separated pen-only result in
+Section~\ref{sec:handpd-clean}. \texttt{verify\_guide\_color.py} reproduces
+the cross-subject mask IoU check that establishes which colour is the
+printed guide. \texttt{rendering\_invariance\_penonly.py} and
+\texttt{rendering\_invariance\_penonly\_suppressed.py} reproduce the
+guide-excluded rendering-invariance ladder (Table~\ref{tab:rendering-penonly})
+on raw and suppressed images respectively, and
+\texttt{background\_disease\_probe.py} and \texttt{compute\_suppressed\_p1.py}
+reproduce the background-only disease-decodability and suppressed P1/P2
+results discussed in Sections~\ref{sec:handpd-clean}--\ref{sec:limitations}.
+Training configuration (Section~\ref{sec:training})
+and package versions are fixed in the released code so that all reported
+numbers can be regenerated end to end.
+
+\section*{CRediT authorship contribution statement}
+\textbf{Jesu Arockiaraj J}: Conceptualization, Methodology, Software,
+Investigation, Formal analysis, Data curation, Visualization, Writing
+original draft. 
+\textbf{Arulkumar V}: Supervision, Methodology,
+Validation, Writing  review \& editing. Both authors approved the final
+version.
+
+\section*{Declaration of competing interest}
+On behalf of all
+authors, the corresponding author states that there is no conflict of interest.
+\section*{Funding}
+This research received no external funding. Computational resources were
+provided by Vellore Institute of Technology, Vellore, India.
+
+\section*{Research involving human and/or animal participants}
+Not applicable: this study performed a secondary analysis of pre-existing,
+publicly available, de-identified data (see Ethics statement above) no
+new human or animal participants were involved.
+
+\section*{Informed consent}
+Not applicable: no new participants were recruited, so no new informed
+consent was obtained by the authors consent for the original data
+collection was obtained by each dataset's original authors under their
+own institutional approvals \cite{pereira2015,zham2017}.
+
+\section*{Declaration of generative AI and AI-assisted technologies in the manuscript preparation process}
+During the preparation of this work, the author(s) used AI Tools
+to assist with data analysis scripting, figure generation, and drafting and
+editing of the manuscript text. After using this tool, the author(s)
+reviewed and edited the content as needed and take full responsibility for
+the content of the published article.
+
+% ======================================================================
+\begin{thebibliography}{9}
+
+\bibitem{chaibubneto2019}
+E. Chaibub Neto et al., ``Detecting the impact of subject characteristics
+on machine learning-based diagnostic applications,'' \emph{npj Digital
+Medicine}, vol.\ 2, p.\ 99, 2019.
+
+\bibitem{tampu2022}
+I. E. Tampu, A. Eklund, N. Haj-Hosseini, ``Inflation of test accuracy due
+to data leakage in deep learning-based classification of OCT images,''
+\emph{Scientific Data}, vol.\ 9, p.\ 580, 2022.
+
+\bibitem{gazda2022}
+M. Gazda, M. Hire\v{s}, P. Drot\'{a}r, ``Multiple-fine-tuned convolutional
+neural networks for Parkinson's disease diagnosis from offline
+handwriting,'' \emph{IEEE Trans.\ Systems, Man, and Cybernetics: Systems},
+vol.\ 52, no.\ 1, pp.\ 78--89, 2022.
+
+\bibitem{kamran2021}
+I. Kamran, S. Naz, I. Razzak, M. Imran, ``Handwriting dynamics assessment
+using deep neural network for early identification of Parkinson's
+disease,'' \emph{Future Generation Computer Systems}, vol.\ 117,
+pp.\ 234--244, 2021.
+
+\bibitem{pereira2015}
+C. R. Pereira, D. R. Pereira, F. A. Silva, C. Hook, S. A. T. Weber,
+L. A. M. Pereira, J. P. Papa, ``A step towards the automated diagnosis of
+Parkinson's disease: Analyzing handwriting movements,'' in \emph{Proc.\
+IEEE 28th Int.\ Symp.\ Computer-Based Medical Systems (CBMS)}, S\~{a}o
+Carlos, Brazil, 2015, pp.\ 171--176; HandPD dataset,
+\url{https://wwwp.fc.unesp.br/~papa/pub/datasets/Handpd/}.
+
+\bibitem{zham2017}
+P. Zham, D. K. Kumar, P. Dabnichki, S. Poosapadi Arjunan, S. Raghav,
+``Distinguishing different stages of Parkinson's disease using a
+composite index of speed and pen-pressure of sketching a spiral,''
+\emph{Frontiers in Neurology}, vol.\ 8, p.\ 435, 2017. Kaggle
+``Parkinson's Drawings'': \url{https://www.kaggle.com/datasets/kmader/parkinsons-drawings}.
+
+\bibitem{brookshire2024}
+G. Brookshire, J. Kasper, N. M. Blauch, Y. C. Wu, R. Glatt, D. A. Merrill,
+S. Gerrol, K. J. Yoder, C. Quirk, C. Lucero, ``Data leakage in deep
+learning studies of translational EEG,'' \emph{Frontiers in Neuroscience},
+vol.\ 18, 1373515, 2024.
+
+\bibitem{rosenblatt2024}
+M. Rosenblatt, L. Tejavibulya, R. Jiang, S. Noble, D. Scheinost, ``Data
+leakage inflates prediction performance in connectome-based machine
+learning models,'' \emph{Nature Communications}, vol.\ 15, no.\ 1,
+p.\ 1829, 2024.
+
+\bibitem{wen2020}
+J. Wen, E. Thibeau-Sutre, M. Diaz-Melo, J. Samper-Gonz\'{a}lez,
+A. Routier, S. Bottani, D. Dormont, S. Durrleman, N. Burgos, O. Colliot,
+``Convolutional neural networks for classification of Alzheimer's
+disease: Overview and reproducible evaluation,'' \emph{Medical
+Image Analysis}, vol.\ 63, 101694, 2020.
+
+\bibitem{alzheimerscoping2025}
+``Data leakage in deep learning for Alzheimer's disease diagnosis: a
+scoping review of methodological rigor and performance inflation,''
+\emph{Diagnostics}, vol.\ 15, 2348, 2025.
+
+\bibitem{geirhos2020}
+R. Geirhos, J.-H. Jacobsen, C. Michaelis, R. Zemel, W. Brendel, M. Bethge,
+F. A. Wichmann, ``Shortcut learning in deep neural networks,'' \emph{Nature
+Machine Intelligence}, vol.\ 2, pp.\ 665--673, 2020.
+
+\bibitem{degrave2021}
+A. J. DeGrave, J. D. Janizek, S.-I. Lee, ``AI for radiographic COVID-19
+detection selects shortcuts over signal,'' \emph{Nature Machine
+Intelligence}, vol.\ 3, pp.\ 610--619, 2021.
+
+\bibitem{zech2018}
+J. R. Zech, M. A. Badgeley, M. Liu, A. B. Costa, J. J. Titano,
+E. K. Oermann, ``Variable generalization performance of a deep learning
+model to detect pneumonia in chest radiographs: a cross-sectional study,''
+\emph{PLOS Medicine}, vol.\ 15, no.\ 11, e1002683, 2018.
+
+\bibitem{roberts2021}
+M. Roberts, D. Driggs, M. Thorpe, et al., ``Common pitfalls and
+recommendations for using machine learning to detect and prognosticate for
+COVID-19 using chest radiographs and CT scans,'' \emph{Nature Machine
+Intelligence}, vol.\ 3, pp.\ 199--217, 2021.
+
+\bibitem{badgeley2019}
+M. A. Badgeley, J. R. Zech, L. Oakden-Rayner, B. S. Glicksberg, M. Liu,
+W. Gale, M. V. McConnell, B. Percha, T. M. Snyder, J. T. Dudley, ``Deep
+learning predicts hip fracture using confounding patient and healthcare
+variables,'' \emph{npj Digital Medicine}, vol.\ 2, p.\ 31, 2019.
+
+\bibitem{kaufman2012}
+S. Kaufman, S. Rosset, C. Perlich, O. Stitelman, ``Leakage in data mining:
+Formulation, detection, and avoidance,'' \emph{ACM Transactions on
+Knowledge Discovery from Data}, vol.\ 6, no.\ 4, pp.\ 1--21, 2012.
+
+\bibitem{varoquaux2022}
+G. Varoquaux, V. Cheplygina, ``Machine learning for medical imaging:
+methodological failures and recommendations for the future,'' \emph{npj
+Digital Medicine}, vol.\ 5, p.\ 48, 2022.
+
+\bibitem{ganin2015}
+Y. Ganin, V. Lempitsky, ``Unsupervised domain adaptation by
+backpropagation,'' in \emph{Proc.\ ICML}, 2015.
+
+\bibitem{sun2016coral}
+B. Sun, K. Saenko, ``Deep CORAL: Correlation alignment for deep domain
+adaptation,'' in \emph{Proc.\ ECCV Workshops}, 2016.
+
+\bibitem{packhauser2022}
+K. Packh\"auser, S. G\"undel, N. M\"unster, C. Syben, V. Christlein,
+A. Maier, ``Deep learning-based patient re-identification is able to
+exploit the biometric nature of medical chest X-ray data,''
+\emph{Scientific Reports}, vol.\ 12, p.\ 14851, 2022.
+
+\bibitem{pereira2016newhandpd}
+C. R. Pereira, D. R. Pereira, F. A. Silva, J. P. Masieiro, S. A. T. Weber,
+C. Hook, J. P. Papa, ``A new computer vision-based approach to aid the
+diagnosis of Parkinson's disease,'' \emph{Computer Methods and Programs in
+Biomedicine}, vol.\ 136, pp.\ 79--88, 2016.
+
+\bibitem{drotar2016pahaw}
+P. Drot\'{a}r, J. Mekyska, I. Rektorov\'{a}, L. Mas\'{a}rov\'{a},
+Z. Sm\'{e}kal, M. Faundez-Zanuy, ``Evaluation of handwriting kinematics
+and pressure for differential diagnosis of Parkinson's disease,''
+\emph{Artificial Intelligence in Medicine}, vol.\ 67, pp.\ 39--46, 2016.
+
+\bibitem{impedovo2019}
+D. Impedovo, G. Pirlo, ``Dynamic handwriting analysis for the assessment
+of neurodegenerative diseases: a pattern recognition perspective,''
+\emph{IEEE Reviews in Biomedical Engineering}, vol.\ 12, pp.\ 209--220,
+2019.
+
+\bibitem{saeb2017}
+S. Saeb, L. Lonini, A. Jayaraman, D. C. Mohr, K. P. Kording, ``The need
+to approximate the use-case in clinical machine learning,''
+\emph{GigaScience}, vol.\ 6, no.\ 5, gix019, 2017.
+
+\bibitem{kapoor2023}
+S. Kapoor, A. Narayanan, ``Leakage and the reproducibility crisis in
+machine-learning-based science,'' \emph{Patterns}, vol.\ 4, no.\ 9,
+100804, 2023.
+
+\bibitem{gulrajani2021}
+I. Gulrajani, D. Lopez-Paz, ``In search of lost domain generalization,''
+in \emph{Proc.\ ICLR}, 2021.
+
+\bibitem{lakens2017}
+D. Lakens, ``Equivalence tests: a practical primer for $t$ tests,
+correlations, and meta-analyses,'' \emph{Social Psychological and
+Personality Science}, vol.\ 8, no.\ 4, pp.\ 355--362, 2017.
+
+\end{thebibliography}
+
+\end{document}
